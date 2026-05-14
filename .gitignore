@@ -2,7 +2,7 @@
 /.venv/
 
 # VS Code local settings
-/.vscode/
+.vscode/
 
 # Nuitka build outputs
 /MSLdata_check.build/
