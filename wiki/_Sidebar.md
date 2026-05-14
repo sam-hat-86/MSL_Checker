@@ -1,8 +1,7 @@
 # Wiki Menu
 
-- [ホーム](Home)
-- [一般環境での始め方](Getting-Started)
-- [Python環境での始め方](Getting-Started-pyhon)
-- [使用方法](Usage)
-- [出力のされ方](Output-Format)
-- [トラブルシューティング](Troubleshooting)
+- [ホーム](ホーム)
+- [一般環境での使い方](一般環境での使い方)
+- [Python環境での使い方](Python環境での使い方)
+- [集計後データの見方](集計後データの見方)
+- [トラブルシューティング](トラブルシューティング)
