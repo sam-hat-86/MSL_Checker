@@ -1,0 +1,6 @@
+polars
+openpyxl
+fastexcel
+xlsxwriter
+zstandard
+nuitka

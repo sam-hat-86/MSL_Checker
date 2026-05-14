@@ -1,0 +1,8 @@
+/.venv
+/logo.ico
+/MSLdata_check.build
+/MSLdata_check.dist
+/MSLdata_check.onefile-build
+/MSL_Aggregator.exe
+/nuitka-crash-report.xml
+/nuitka_tmp
