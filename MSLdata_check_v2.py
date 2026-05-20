@@ -434,7 +434,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
     fmt_cond_orange = workbook.add_format({'font_name': ud_font, 'bg_color': '#FFA500', 'font_color': '#000000'})
     fmt_cond_firebrick = workbook.add_format({'font_name': ud_font, 'bg_color': '#B22222', 'font_color': '#FFFFFF'})
 
-    def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str]):
+    def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str], sheet_label: str):
+        progress(f"{sheet_label} の書き込みを開始します...")
         headers = df.columns
         max_col = len(headers) - 1
         data_rows = df.rows()
@@ -451,6 +452,9 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
 
         # 2. 3行目（Row 2）からデータ書き込み ＆ A〜C列の幅を計算
         for row_num, row_data in enumerate(data_rows, start=2):
+            if row_num == 2 or row_num % 1000 == 0:
+                progress(f"{sheet_label}: {row_num - 1}/{len(data_rows)} 行を書き込み中...")
+
             is_even_excel_row = ((row_num + 1) % 2 == 0)
 
             # A列(No), B列(氏名), C列(教室) の文字幅を計算して記録
@@ -549,14 +553,15 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
                 {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
 
         worksheet.freeze_panes(2, 3)
+        progress(f"{sheet_label} の書き込みが完了しました。")
 
     # 全集計シート
     ws_all = workbook.add_worksheet("全集計")
-    write_sheet(ws_all, df_all, week_periods_all)
+    write_sheet(ws_all, df_all, week_periods_all, "全集計")
 
     # 除外集計シート
     ws_excl = workbook.add_worksheet("除外集計")
-    write_sheet(ws_excl, df_excl, week_periods_excl)
+    write_sheet(ws_excl, df_excl, week_periods_excl, "除外集計")
 
     workbook.close()
     progress("Excelファイルの保存が完了しました！")
@@ -617,26 +622,25 @@ def main():
     root = tk.Tk()
     configure_tk_scaling(root)
     root.withdraw()
-
-    # ダイアログが背面に隠れないように強制的に最前面に持ってくる
-    root.attributes("-topmost", True)
-    root.lift()
-    root.focus_force()
-
-    print("集計元のExcelファイルを選択してください...")
-    input_file = filedialog.askopenfilename(
-        title="集計元のExcelファイルを選択してください",
-        filetypes=[("Excelファイル", "*.xlsx *.xls *.xlsm"), ("すべてのファイル", "*.*")],
-        parent=root
-    )
-
-    root.attributes("-topmost", False)
-
-    if not input_file:
-        print("ファイルの選択がキャンセルされました。")
-        return
-
     try:
+        # ダイアログが背面に隠れないように強制的に最前面に持ってくる
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
+
+        print("集計元のExcelファイルを選択してください...")
+        input_file = filedialog.askopenfilename(
+            title="集計元のExcelファイルを選択してください",
+            filetypes=[("Excelファイル", "*.xlsx *.xls *.xlsm"), ("すべてのファイル", "*.*")],
+            parent=root
+        )
+
+        root.attributes("-topmost", False)
+
+        if not input_file:
+            print("ファイルの選択がキャンセルされました。")
+            return
+
         total_start_time = time.perf_counter()
 
         df_all, df_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl = process_attendance_data(input_file)
@@ -657,6 +661,8 @@ def main():
 
         print(f"すべての処理が完了しました！ (実行時間: {total_elapsed:.2f}秒)")
 
+    except KeyboardInterrupt:
+        print("処理を中断しました。")
     except Exception as e:
         tb = traceback.format_exc()
         print("\n=== エラー詳細 ===")
