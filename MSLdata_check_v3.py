@@ -160,7 +160,7 @@ def get_jp_weekday(dt_obj):
     return weekdays[dt_obj.weekday()]
 
 
-def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str]]:
+def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str]]:
     df = load_sheet_preserve_extra_columns(input_file, sheet_index=1)
     cols = df.columns
 
@@ -404,10 +404,48 @@ def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame
 
     df_pivot_excl, week_periods_excl = aggregate_and_pivot(df_metrics_excl)
 
-    return df_pivot_all, df_pivot_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl
+    # 教室ごとの総括（教室レベル集計）
+    df_classroom_summary = (
+        df_metrics
+        .group_by("教室")
+        .agg(
+            pl.len().alias("授業数"),
+            pl.col("担当講師N0").n_unique().alias("講師数"),
+            pl.col("hw_pages").sum().alias("宿題合計"),
+            pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
+            pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数")
+        )
+        .with_columns(
+            (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
+            (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
+            (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率")
+        )
+        .sort("教室")
+    )
+
+    # 除外版の教室サマリー（Lap除外など）
+    df_classroom_summary_excl = (
+        df_metrics_excl
+        .group_by("教室")
+        .agg(
+            pl.len().alias("授業数"),
+            pl.col("担当講師N0").n_unique().alias("講師数"),
+            pl.col("hw_pages").sum().alias("宿題合計"),
+            pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
+            pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数")
+        )
+        .with_columns(
+            (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
+            (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
+            (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率")
+        )
+        .sort("教室")
+    )
+
+    return df_pivot_all, df_pivot_excl, df_classroom_summary, df_classroom_summary_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl
 
 
-def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: str, date_range_str: str, sheet_name: str, week_periods_all: list[str], week_periods_excl: list[str]):
+def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_summary: pl.DataFrame, df_classroom_summary_excl: pl.DataFrame, output_file: str, date_range_str: str, sheet_name: str, week_periods_all: list[str], week_periods_excl: list[str]):
     progress("xlsxwriterによる超高速書き出し・書式設定中...")
 
     workbook = xlsxwriter.Workbook(output_file)
@@ -434,23 +472,70 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
     fmt_cond_orange = workbook.add_format({'font_name': ud_font, 'bg_color': '#FFA500', 'font_color': '#000000'})
     fmt_cond_firebrick = workbook.add_format({'font_name': ud_font, 'bg_color': '#B22222', 'font_color': '#FFFFFF'})
 
-    def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str]):
+    def make_safe_sheet_name(raw_name: str, used_names: set[str]) -> str:
+        name = str(raw_name).strip() or "無名教室"
+        translate_table = str.maketrans({
+            "/": "／",
+            "\\": "＼",
+            "?": "？",
+            "*": "＊",
+            "[": "［",
+            "]": "］",
+            ":": "：",
+        })
+        name = name.translate(translate_table)
+        if name.startswith("'"):
+            name = name[1:]
+        if name.endswith("'"):
+            name = name[:-1]
+        name = name[:31] or "無名教室"
+
+        base_name = name
+        counter = 2
+        while name in used_names:
+            suffix = f"_{counter}"
+            name = f"{base_name[:31 - len(suffix)]}{suffix}"
+            counter += 1
+
+        used_names.add(name)
+        return name
+
+    def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str], sheet_label: str, top_summary: str | None = None):
+        progress(f"{sheet_label} の書き込みを開始します...")
         headers = df.columns
         max_col = len(headers) - 1
         data_rows = df.rows()
-        max_row_idx = len(data_rows) + 1
 
-        # 1. 2行目（Row 1）にヘッダーを書き込む
+        # header_row / data_start を summaryの有無で調整
+        header_row = 1
+        if top_summary:
+            # 日付タイトルが row 0 に入るため、その下に summary を入れる
+            header_row = 2
+
+        data_start = header_row + 1
+
+        # 1. summary（ある場合）は header_row-1 に表示
+        if top_summary:
+            try:
+                worksheet.merge_range(header_row - 1, 0, header_row - 1, max_col, top_summary, fmt_title)
+            except Exception:
+                worksheet.write(header_row - 1, 0, top_summary, fmt_title)
+
+        # 2. ヘッダーを書き込む
         for col_num, col_name in enumerate(headers):
-            worksheet.write(1, col_num, col_name, fmt_header)
+            worksheet.write(header_row, col_num, col_name, fmt_header)
 
         # カスタムオートフィット用の幅計算変数
         max_a_width = 4  # Noの最低幅
         max_b_width = 12 # 氏名の最低幅
         max_c_width = 10 # 教室の最低幅
 
-        # 2. 3行目（Row 2）からデータ書き込み ＆ A〜C列の幅を計算
-        for row_num, row_data in enumerate(data_rows, start=2):
+        # 3. data_start 行からデータ書き込み ＆ A〜C列の幅を計算
+        for ri, row_data in enumerate(data_rows, start=0):
+            row_num = data_start + ri
+            if ri == 0 or (ri + 1) % 1000 == 0:
+                progress(f"{sheet_label}: {ri + 1}/{len(data_rows)} 行を書き込み中...")
+
             is_even_excel_row = ((row_num + 1) % 2 == 0)
 
             # A列(No), B列(氏名), C列(教室) の文字幅を計算して記録
@@ -477,7 +562,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
                     else:
                         worksheet.write(row_num, col_num, cell_value, base_fmt)
                     continue
-                
+
                 # D列（総授業数）
                 if col_num == 3:
                     if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
@@ -511,7 +596,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
                     else:
                         worksheet.write(row_num, col_num, cell_value, base_fmt)
 
-        # 3. カスタムオートフィットの適用（UDフォント向けに少し余白を広めにとる）
+        # 4. カスタムオートフィットの適用（UDフォント向けに少し余白を広めにとる）
         worksheet.set_column(0, 0, max_a_width + 3)  # No (計算した幅+余白)
         worksheet.set_column(1, 1, max_b_width + 3)  # 氏名 (計算した幅+余白)
         worksheet.set_column(2, 2, max_c_width + 3)  # 教室 (計算した幅+余白)
@@ -519,7 +604,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
         if max_col >= 4:
             worksheet.set_column(4, max_col, 9)      # 授業数等の列はスッキリと固定幅
 
-        # 4. 日付などのタイトルを入力（幅設定後に行うことで安全に結合可能）
+        # 5. 日付などのタイトルを入力（幅設定後に行うことで安全に結合可能）
         worksheet.merge_range(0, 0, 0, 2, date_range_str, fmt_title)
         worksheet.set_row(0, 20)
 
@@ -528,10 +613,11 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
             if start_col + 5 <= max_col:
                 worksheet.merge_range(0, start_col, 0, start_col + 5, period_str, fmt_title_center)
 
-        # 5. オートフィルターの設定
-        worksheet.autofilter(1, 0, max_row_idx, max_col)
+        # 6. オートフィルターの設定
+        last_row = data_start + len(data_rows) - 1
+        worksheet.autofilter(header_row, 0, last_row, max_col)
 
-        # 6. 条件付き書式
+        # 7. 条件付き書式
         for c_base in range(4, len(headers), 6):
             if c_base + 5 > max_col:
                 break
@@ -540,23 +626,133 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
             col_lap = c_base + 3
             col_test = c_base + 5
 
-            worksheet.conditional_format(2, col_hw, max_row_idx, col_hw,
+            worksheet.conditional_format(data_start, col_hw, last_row, col_hw,
                 {'type': 'cell', 'criteria': '<', 'value': 6, 'format': fmt_cond_orange})
 
-            worksheet.conditional_format(2, col_lap, max_row_idx, col_lap,
+            worksheet.conditional_format(data_start, col_lap, last_row, col_lap,
                 {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
-            worksheet.conditional_format(2, col_test, max_row_idx, col_test,
+            worksheet.conditional_format(data_start, col_test, last_row, col_test,
                 {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
 
-        worksheet.freeze_panes(2, 3)
+        worksheet.freeze_panes(data_start, 3)
+        progress(f"{sheet_label} の書き込みが完了しました。")
 
     # 全集計シート
     ws_all = workbook.add_worksheet("全集計")
-    write_sheet(ws_all, df_all, week_periods_all)
+    write_sheet(ws_all, df_all, week_periods_all, "全集計")
 
     # 除外集計シート
     ws_excl = workbook.add_worksheet("除外集計")
-    write_sheet(ws_excl, df_excl, week_periods_excl)
+    write_sheet(ws_excl, df_excl, week_periods_excl, "除外集計")
+
+    # 全教室サマリーシート（通常版と除外版を結合して表示）
+    ws_allclass = workbook.add_worksheet("全教室")
+    # classroom summary は df_classroom_summary / df_classroom_summary_excl
+    def write_simple_sheet(worksheet, df: pl.DataFrame, sheet_label: str, date_title: str):
+        # タイトル
+        try:
+            worksheet.merge_range(0, 0, 0, max(0, df.width - 1), date_title, fmt_title)
+        except Exception:
+            worksheet.write(0, 0, date_title, fmt_title)
+        worksheet.set_row(0, 20)
+
+        # ヘッダー
+        for c, col_name in enumerate(df.columns):
+            worksheet.write(1, c, col_name, fmt_header)
+
+        # データ行
+        for ri, row in enumerate(df.rows(), start=2):
+            is_even = (ri % 2 == 0)
+            for c, v in enumerate(row):
+                if isinstance(v, float) and math.isnan(v):
+                    v = None
+                # パーセント列名を判定
+                colname = df.columns[c]
+                if '率' in colname:
+                    fmt = fmt_gray_pct if is_even else fmt_white_pct
+                    if v is None:
+                        worksheet.write_blank(ri, c, "", fmt)
+                    else:
+                        worksheet.write(ri, c, v, fmt)
+                else:
+                    fmt = fmt_gray if is_even else fmt_white
+                    if v is None:
+                        worksheet.write_blank(ri, c, "", fmt)
+                    else:
+                        worksheet.write(ri, c, v, fmt)
+
+        # 幅調整: 簡易的
+        for c in range(df.width):
+            worksheet.set_column(c, c, 12)
+
+        worksheet.autofilter(1, 0, 1 + df.height, max(0, df.width - 1))
+        worksheet.freeze_panes(2, 0)
+
+    # マージして左右に除外版の列を並べる
+    try:
+        merged = df_classroom_summary.join(df_classroom_summary_excl, on="教室", how="outer", suffix="_除外")
+    except Exception:
+        # フォールバック: 単独表示
+        merged = df_classroom_summary
+
+    # 列表示順: 教室, 授業数, 講師数, 宿題平均, ラップ率, テスト率, （除外版）...
+    preferred = ["教室", "授業数", "講師数", "宿題平均", "ラップ率", "テスト率",
+                 "授業数_除外", "講師数_除外", "宿題平均_除外", "ラップ率_除外", "テスト率_除外"]
+    cols_to_show = [c for c in preferred if c in merged.columns]
+    if "教室" not in cols_to_show:
+        cols_to_show = merged.columns
+
+    merged = merged.select(cols_to_show)
+
+    write_simple_sheet(ws_allclass, merged, "全教室", date_range_str)
+
+    # 教室別サマリーシート
+    used_sheet_names = {"全集計", "除外集計"}
+    classroom_values = []
+    seen_classrooms = set()
+    for value in df_all.get_column("教室").to_list():
+        key = "" if value is None else str(value)
+        if key in seen_classrooms:
+            continue
+        seen_classrooms.add(key)
+        classroom_values.append(value)
+
+    progress(f"教室別シートを作成中... 対象教室数={len(classroom_values)}")
+    for classroom_value in classroom_values:
+        classroom_label = "無名教室" if classroom_value is None else str(classroom_value).strip() or "無名教室"
+        sheet_label = make_safe_sheet_name(classroom_label, used_sheet_names)
+
+        if classroom_value is None:
+            classroom_df = df_all.filter(pl.col("教室").is_null())
+        else:
+            classroom_df = df_all.filter(pl.col("教室").cast(pl.Utf8).str.strip_chars() == classroom_label)
+
+        if classroom_df.height == 0:
+            continue
+
+        progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
+        ws_classroom = workbook.add_worksheet(sheet_label)
+        # 教室の集計値を取得してトップに表示する文字列を作る
+        summary_row = None
+        try:
+            if classroom_value is None:
+                summary_row = df_classroom_summary.filter(pl.col("教室").is_null())
+            else:
+                summary_row = df_classroom_summary.filter(pl.col("教室").cast(pl.Utf8).str.strip_chars() == classroom_label)
+            if summary_row.height == 1:
+                r = summary_row.row(0)
+                total_classes = int(r[1]) if r[1] is not None else 0
+                instructor_count = int(r[2]) if r[2] is not None else 0
+                hw_avg = float(r[6]) if r[6] is not None else 0.0
+                lap_rate = float(r[7]) if r[7] is not None else 0.0
+                test_rate = float(r[8]) if r[8] is not None else 0.0
+                top_summary = f"教室: {classroom_label}  総授業数: {total_classes}  講師数: {instructor_count}  宿題平均: {hw_avg:.1f}  Lap率: {lap_rate:.1%}  テスト率: {test_rate:.1%}"
+            else:
+                top_summary = f"教室: {classroom_label}"
+        except Exception:
+            top_summary = f"教室: {classroom_label}"
+
+        write_sheet(ws_classroom, classroom_df, week_periods_all, classroom_label, top_summary)
 
     workbook.close()
     progress("Excelファイルの保存が完了しました！")
@@ -617,31 +813,30 @@ def main():
     root = tk.Tk()
     configure_tk_scaling(root)
     root.withdraw()
-
-    # ダイアログが背面に隠れないように強制的に最前面に持ってくる
-    root.attributes("-topmost", True)
-    root.lift()
-    root.focus_force()
-
-    print("集計元のExcelファイルを選択してください...")
-    input_file = filedialog.askopenfilename(
-        title="集計元のExcelファイルを選択してください",
-        filetypes=[("Excelファイル", "*.xlsx *.xls *.xlsm"), ("すべてのファイル", "*.*")],
-        parent=root
-    )
-
-    root.attributes("-topmost", False)
-
-    if not input_file:
-        print("ファイルの選択がキャンセルされました。")
-        return
-
     try:
+        # ダイアログが背面に隠れないように強制的に最前面に持ってくる
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
+
+        print("集計元のExcelファイルを選択してください...")
+        input_file = filedialog.askopenfilename(
+            title="集計元のExcelファイルを選択してください",
+            filetypes=[("Excelファイル", "*.xlsx *.xls *.xlsm"), ("すべてのファイル", "*.*")],
+            parent=root
+        )
+
+        root.attributes("-topmost", False)
+
+        if not input_file:
+            print("ファイルの選択がキャンセルされました。")
+            return
+
         total_start_time = time.perf_counter()
 
-        df_all, df_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl = process_attendance_data(input_file)
+        df_all, df_excl, df_classroom_summary, df_classroom_summary_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl = process_attendance_data(input_file)
 
-        format_excel_fast(df_all, df_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl)
+        format_excel_fast(df_all, df_excl, df_classroom_summary, df_classroom_summary_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl)
 
         total_elapsed = time.perf_counter() - total_start_time
 
@@ -657,6 +852,8 @@ def main():
 
         print(f"すべての処理が完了しました！ (実行時間: {total_elapsed:.2f}秒)")
 
+    except KeyboardInterrupt:
+        print("処理を中断しました。")
     except Exception as e:
         tb = traceback.format_exc()
         print("\n=== エラー詳細 ===")
