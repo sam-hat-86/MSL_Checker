@@ -160,7 +160,7 @@ def get_jp_weekday(dt_obj):
     return weekdays[dt_obj.weekday()]
 
 
-def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, str, str, str, list[str]]:
+def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str]]:
     df = load_sheet_preserve_extra_columns(input_file, sheet_index=1)
     cols = df.columns
 
@@ -291,89 +291,126 @@ def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, str, str, st
             if md and xd:
                 week_dict[str(w_num)] = f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
 
-    progress("週次集計中...")
-    df_agg_base = (
-        df_metrics.group_by(["担当講師N0", "担当講師名", "教室", "week_num"])
-        .agg(
-            pl.len().alias("授業数"),
-            pl.col("hw_pages").sum().alias("宿題合計"),
-            pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
-            pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数")
+    # 共通処理: 集計→ピボットを行う内部関数
+    def aggregate_and_pivot(df_metrics_local: pl.DataFrame):
+        progress("週次集計中...")
+        week_dict_local = {}
+        if "date_val" in df_metrics_local.columns:
+            week_ranges_local = (
+                df_metrics_local.filter(pl.col("date_val").is_not_null())
+                .group_by("week_num")
+                .agg(
+                    pl.col("date_val").min().alias("min_dt"),
+                    pl.col("date_val").max().alias("max_dt")
+                )
+            )
+            for row in week_ranges_local.iter_rows(named=True):
+                w_num = row["week_num"]
+                md = row["min_dt"]
+                xd = row["max_dt"]
+                if md and xd:
+                    week_dict_local[str(w_num)] = f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
+
+        df_agg_base_local = (
+            df_metrics_local.group_by(["担当講師N0", "担当講師名", "教室", "week_num"])
+            .agg(
+                pl.len().alias("授業数"),
+                pl.col("hw_pages").sum().alias("宿題合計"),
+                pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
+                pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数")
+            )
         )
-    )
 
-    df_agg = (
-        df_agg_base
-        .with_columns(
-            (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
-            (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
-            (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率"),
+        df_agg_local = (
+            df_agg_base_local
+            .with_columns(
+                (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
+                (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
+                (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率"),
+            )
+            .select([
+                "担当講師N0", "担当講師名", "教室", "week_num",
+                "授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"
+            ])
         )
-        .select([
-            "担当講師N0", "担当講師名", "教室", "week_num",
-            "授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"
-        ])
-    )
 
-    progress("横持ちへのピボット処理...")
-    df_pivot = df_agg.pivot(
-        on="week_num",
-        index=["担当講師N0", "担当講師名", "教室"],
-        values=["授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"]
-    )
+        progress("横持ちへのピボット処理...")
+        df_pivot_local = df_agg_local.pivot(
+            on="week_num",
+            index=["担当講師N0", "担当講師名", "教室"],
+            values=["授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"]
+        )
 
-    progress("希望の列順への並び替えとソート処理中...")
-    weeks = sorted(list(set([c.split("_")[-1] for c in df_pivot.columns if "_" in c])))
+        progress("希望の列順への並び替えとソート処理中...")
+        weeks_local = sorted(list(set([c.split("_")[-1] for c in df_pivot_local.columns if "_" in c])))
 
-    # 総授業数を計算
-    class_cols = [f"授業数_{w}" for w in weeks]
-    total_class_expr = pl.sum_horizontal([pl.col(c) for c in class_cols if c in df_pivot.columns]).fill_null(0)
-    df_pivot = df_pivot.with_columns(total_class_expr.alias("総授業数"))
+        # 総授業数を計算
+        class_cols_local = [f"授業数_{w}" for w in weeks_local]
+        total_class_expr_local = pl.sum_horizontal([pl.col(c) for c in class_cols_local if c in df_pivot_local.columns]).fill_null(0)
+        df_pivot_local = df_pivot_local.with_columns(total_class_expr_local.alias("総授業数"))
 
-    new_col_order = ["担当講師N0", "担当講師名", "教室", "総授業数"]
-    rename_mapping = {
-        "担当講師N0": "No",
-        "担当講師名": "氏名",
-        "教室": "教室",
-        "総授業数": "総授業数"
-    }
+        new_col_order_local = ["担当講師N0", "担当講師名", "教室", "総授業数"]
+        rename_mapping_local = {
+            "担当講師N0": "No",
+            "担当講師名": "氏名",
+            "教室": "教室",
+            "総授業数": "総授業数"
+        }
 
-    week_periods = []
-    for i, w in enumerate(weeks, start=1):
-        c_class = f"授業数_{w}"
-        c_hw = f"宿題平均_{w}"
-        c_lap_cnt = f"ラップ回数_{w}"
-        c_lap_rate = f"ラップ率_{w}"
-        c_test_cnt = f"テスト回数_{w}"
-        c_test_rate = f"テスト率_{w}"
+        week_periods_local = []
+        for i, w in enumerate(weeks_local, start=1):
+            c_class = f"授業数_{w}"
+            c_hw = f"宿題平均_{w}"
+            c_lap_cnt = f"ラップ回数_{w}"
+            c_lap_rate = f"ラップ率_{w}"
+            c_test_cnt = f"テスト回数_{w}"
+            c_test_rate = f"テスト率_{w}"
 
-        new_col_order.extend([c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate])
+            new_col_order_local.extend([c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate])
 
-        rename_mapping[c_class] = f"授業{i}"
-        rename_mapping[c_hw] = f"平均HW{i}"
-        rename_mapping[c_lap_cnt] = f"Lap数{i}"
-        rename_mapping[c_lap_rate] = f"Lap％{i}"
-        rename_mapping[c_test_cnt] = f"テスト数{i}"
-        rename_mapping[c_test_rate] = f"テスト％{i}"
+            rename_mapping_local[c_class] = f"授業{i}"
+            rename_mapping_local[c_hw] = f"平均HW{i}"
+            rename_mapping_local[c_lap_cnt] = f"Lap数{i}"
+            rename_mapping_local[c_lap_rate] = f"Lap％{i}"
+            rename_mapping_local[c_test_cnt] = f"テスト数{i}"
+            rename_mapping_local[c_test_rate] = f"テスト％{i}"
 
-        week_periods.append(week_dict.get(str(w), f"Week {i}"))
+            week_periods_local.append(week_dict_local.get(str(w), f"Week {i}"))
 
-    valid_new_col_order = [c for c in new_col_order if c in df_pivot.columns]
+        valid_new_col_order_local = [c for c in new_col_order_local if c in df_pivot_local.columns]
 
-    df_pivot = (
-        df_pivot.select(valid_new_col_order)
-        .rename({k: v for k, v in rename_mapping.items() if k in valid_new_col_order})
-        .sort(["教室", "No"])
-    )
+        df_pivot_local = (
+            df_pivot_local.select(valid_new_col_order_local)
+            .rename({k: v for k, v in rename_mapping_local.items() if k in valid_new_col_order_local})
+            .sort(["教室", "No"])
+        )
 
-    return df_pivot, output_file, date_range_str, sheet_name, week_periods
+        return df_pivot_local, week_periods_local
+
+    # フル集計
+    df_pivot_all, week_periods_all = aggregate_and_pivot(df_metrics)
+
+    # 除外条件: 教室に高3/高３/高卒 を含む、または 科目欄(もしあれば)が国語 を含む行を除外
+    subj_col = None
+    for c in cols:
+        if c in ("科目", "教科"):
+            subj_col = c
+            break
+
+    cond_class = pl.col("教室").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
+    cond_subj = (pl.col(subj_col).cast(pl.Utf8).str.contains(r"国語").fill_null(False)) if subj_col else pl.lit(False)
+
+    df_metrics_excl = df_metrics.filter(~cond_class & ~cond_subj)
+
+    df_pivot_excl, week_periods_excl = aggregate_and_pivot(df_metrics_excl)
+
+    return df_pivot_all, df_pivot_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl
 
 
-def format_excel_fast(df: pl.DataFrame, output_file: str, date_range_str: str, sheet_name: str, week_periods: list[str]):
+def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: str, date_range_str: str, sheet_name: str, week_periods_all: list[str], week_periods_excl: list[str]):
     progress("xlsxwriterによる超高速書き出し・書式設定中...")
 
     workbook = xlsxwriter.Workbook(output_file)
-    worksheet = workbook.add_worksheet(sheet_name)
 
     # Windows標準の見やすいUDフォントを設定
     ud_font = 'Noto Sans JP'
@@ -397,120 +434,130 @@ def format_excel_fast(df: pl.DataFrame, output_file: str, date_range_str: str, s
     fmt_cond_orange = workbook.add_format({'font_name': ud_font, 'bg_color': '#FFA500', 'font_color': '#000000'})
     fmt_cond_firebrick = workbook.add_format({'font_name': ud_font, 'bg_color': '#B22222', 'font_color': '#FFFFFF'})
 
-    headers = df.columns
-    max_col = len(headers) - 1
-    data_rows = df.rows()
-    max_row_idx = len(data_rows) + 1
+    def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str]):
+        headers = df.columns
+        max_col = len(headers) - 1
+        data_rows = df.rows()
+        max_row_idx = len(data_rows) + 1
 
-    # 1. 2行目（Row 1）にヘッダーを書き込む
-    for col_num, col_name in enumerate(headers):
-        worksheet.write(1, col_num, col_name, fmt_header)
+        # 1. 2行目（Row 1）にヘッダーを書き込む
+        for col_num, col_name in enumerate(headers):
+            worksheet.write(1, col_num, col_name, fmt_header)
 
-    # カスタムオートフィット用の幅計算変数
-    max_a_width = 4  # Noの最低幅
-    max_b_width = 12 # 氏名の最低幅
-    max_c_width = 10 # 教室の最低幅
+        # カスタムオートフィット用の幅計算変数
+        max_a_width = 4  # Noの最低幅
+        max_b_width = 12 # 氏名の最低幅
+        max_c_width = 10 # 教室の最低幅
 
-    # 2. 3行目（Row 2）からデータ書き込み ＆ A〜C列の幅を計算
-    for row_num, row_data in enumerate(data_rows, start=2):
-        is_even_excel_row = ((row_num + 1) % 2 == 0)
+        # 2. 3行目（Row 2）からデータ書き込み ＆ A〜C列の幅を計算
+        for row_num, row_data in enumerate(data_rows, start=2):
+            is_even_excel_row = ((row_num + 1) % 2 == 0)
 
-        # A列(No), B列(氏名), C列(教室) の文字幅を計算して記録
-        val_a = row_data[0]
-        if val_a is not None:
-            w_a = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_a))
-            if w_a > max_a_width: max_a_width = w_a
+            # A列(No), B列(氏名), C列(教室) の文字幅を計算して記録
+            val_a = row_data[0]
+            if val_a is not None:
+                w_a = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_a))
+                if w_a > max_a_width: max_a_width = w_a
 
-        val_b = row_data[1]
-        if val_b is not None:
-            w_b = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_b))
-            if w_b > max_b_width: max_b_width = w_b
+            val_b = row_data[1]
+            if val_b is not None:
+                w_b = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_b))
+                if w_b > max_b_width: max_b_width = w_b
 
-        val_c = row_data[2]
-        if val_c is not None:
-            w_c = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_c))
-            if w_c > max_c_width: max_c_width = w_c
+            val_c = row_data[2]
+            if val_c is not None:
+                w_c = sum(2.2 if unicodedata.east_asian_width(c) in ('F', 'W', 'A') else 1.2 for c in str(val_c))
+                if w_c > max_c_width: max_c_width = w_c
 
-        for col_num, cell_value in enumerate(row_data):
-            if col_num < 3:
-                base_fmt = fmt_gray if is_even_excel_row else fmt_white
-                if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
-                    worksheet.write_blank(row_num, col_num, "", base_fmt)
-                else:
-                    worksheet.write(row_num, col_num, cell_value, base_fmt)
-                continue
-            
-            # D列（総授業数）
-            if col_num == 3:
-                if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
-                    worksheet.write_blank(row_num, col_num, "", fmt_lavender)
-                else:
-                    worksheet.write(row_num, col_num, cell_value, fmt_lavender)
-                continue
+            for col_num, cell_value in enumerate(row_data):
+                if col_num < 3:
+                    base_fmt = fmt_gray if is_even_excel_row else fmt_white
+                    if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
+                        worksheet.write_blank(row_num, col_num, "", base_fmt)
+                    else:
+                        worksheet.write(row_num, col_num, cell_value, base_fmt)
+                    continue
+                
+                # D列（総授業数）
+                if col_num == 3:
+                    if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
+                        worksheet.write_blank(row_num, col_num, "", fmt_lavender)
+                    else:
+                        worksheet.write(row_num, col_num, cell_value, fmt_lavender)
+                    continue
 
-            offset = (col_num - 4) % 6
-            c_base = col_num - offset
+                offset = (col_num - 4) % 6
+                c_base = col_num - offset
 
-            class_count = row_data[c_base]
-            has_no_class = (class_count is None) or (isinstance(class_count, float) and math.isnan(class_count)) or (class_count == 0)
+                class_count = row_data[c_base]
+                has_no_class = (class_count is None) or (isinstance(class_count, float) and math.isnan(class_count)) or (class_count == 0)
 
-            if offset == 0:
-                base_fmt = fmt_khaki
-            elif offset == 3 or offset == 5:
-                base_fmt = fmt_gray_pct if is_even_excel_row else fmt_white_pct
-            else:
-                base_fmt = fmt_gray if is_even_excel_row else fmt_white
-
-            if has_no_class:
                 if offset == 0:
-                    worksheet.write(row_num, col_num, 0, base_fmt)
+                    base_fmt = fmt_khaki
+                elif offset == 3 or offset == 5:
+                    base_fmt = fmt_gray_pct if is_even_excel_row else fmt_white_pct
                 else:
-                    hyphen_fmt = fmt_gray_center if is_even_excel_row else fmt_white_center
-                    worksheet.write(row_num, col_num, "-", hyphen_fmt)
-            else:
-                if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
-                    worksheet.write_blank(row_num, col_num, "", base_fmt)
+                    base_fmt = fmt_gray if is_even_excel_row else fmt_white
+
+                if has_no_class:
+                    if offset == 0:
+                        worksheet.write(row_num, col_num, 0, base_fmt)
+                    else:
+                        hyphen_fmt = fmt_gray_center if is_even_excel_row else fmt_white_center
+                        worksheet.write(row_num, col_num, "-", hyphen_fmt)
                 else:
-                    worksheet.write(row_num, col_num, cell_value, base_fmt)
+                    if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
+                        worksheet.write_blank(row_num, col_num, "", base_fmt)
+                    else:
+                        worksheet.write(row_num, col_num, cell_value, base_fmt)
 
-    # 3. カスタムオートフィットの適用（UDフォント向けに少し余白を広めにとる）
-    worksheet.set_column(0, 0, max_a_width + 3)  # No (計算した幅+余白)
-    worksheet.set_column(1, 1, max_b_width + 3)  # 氏名 (計算した幅+余白)
-    worksheet.set_column(2, 2, max_c_width + 3)  # 教室 (計算した幅+余白)
-    worksheet.set_column(3, 3, 9)                # 総授業数
-    if max_col >= 4:
-        worksheet.set_column(4, max_col, 9)      # 授業数等の列はスッキリと固定幅
+        # 3. カスタムオートフィットの適用（UDフォント向けに少し余白を広めにとる）
+        worksheet.set_column(0, 0, max_a_width + 3)  # No (計算した幅+余白)
+        worksheet.set_column(1, 1, max_b_width + 3)  # 氏名 (計算した幅+余白)
+        worksheet.set_column(2, 2, max_c_width + 3)  # 教室 (計算した幅+余白)
+        worksheet.set_column(3, 3, 9)                # 総授業数
+        if max_col >= 4:
+            worksheet.set_column(4, max_col, 9)      # 授業数等の列はスッキリと固定幅
 
-    # 4. 日付などのタイトルを入力（幅設定後に行うことで安全に結合可能）
-    worksheet.merge_range(0, 0, 0, 2, date_range_str, fmt_title)
-    worksheet.set_row(0, 20)
+        # 4. 日付などのタイトルを入力（幅設定後に行うことで安全に結合可能）
+        worksheet.merge_range(0, 0, 0, 2, date_range_str, fmt_title)
+        worksheet.set_row(0, 20)
 
-    for i, period_str in enumerate(week_periods):
-        start_col = 4 + i * 6
-        if start_col + 5 <= max_col:
-            worksheet.merge_range(0, start_col, 0, start_col + 5, period_str, fmt_title_center)
+        for i, period_str in enumerate(week_periods):
+            start_col = 4 + i * 6
+            if start_col + 5 <= max_col:
+                worksheet.merge_range(0, start_col, 0, start_col + 5, period_str, fmt_title_center)
 
-    # 5. オートフィルターの設定
-    worksheet.autofilter(1, 0, max_row_idx, max_col)
+        # 5. オートフィルターの設定
+        worksheet.autofilter(1, 0, max_row_idx, max_col)
 
-    # 6. 条件付き書式
-    for c_base in range(4, len(headers), 6):
-        if c_base + 5 > max_col:
-            break
+        # 6. 条件付き書式
+        for c_base in range(4, len(headers), 6):
+            if c_base + 5 > max_col:
+                break
 
-        col_hw = c_base + 1
-        col_lap = c_base + 3
-        col_test = c_base + 5
+            col_hw = c_base + 1
+            col_lap = c_base + 3
+            col_test = c_base + 5
 
-        worksheet.conditional_format(2, col_hw, max_row_idx, col_hw,
-            {'type': 'cell', 'criteria': '<', 'value': 6, 'format': fmt_cond_orange})
+            worksheet.conditional_format(2, col_hw, max_row_idx, col_hw,
+                {'type': 'cell', 'criteria': '<', 'value': 6, 'format': fmt_cond_orange})
 
-        worksheet.conditional_format(2, col_lap, max_row_idx, col_lap,
-            {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
-        worksheet.conditional_format(2, col_test, max_row_idx, col_test,
-            {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
+            worksheet.conditional_format(2, col_lap, max_row_idx, col_lap,
+                {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
+            worksheet.conditional_format(2, col_test, max_row_idx, col_test,
+                {'type': 'cell', 'criteria': '<', 'value': 0.7, 'format': fmt_cond_firebrick})
 
-    worksheet.freeze_panes(2, 3)
+        worksheet.freeze_panes(2, 3)
+
+    # 全集計シート
+    ws_all = workbook.add_worksheet("全集計")
+    write_sheet(ws_all, df_all, week_periods_all)
+
+    # 除外集計シート
+    ws_excl = workbook.add_worksheet("除外集計")
+    write_sheet(ws_excl, df_excl, week_periods_excl)
+
     workbook.close()
     progress("Excelファイルの保存が完了しました！")
 
@@ -592,9 +639,9 @@ def main():
     try:
         total_start_time = time.perf_counter()
 
-        df_pivot, output_file, date_range_str, sheet_name, week_periods = process_attendance_data(input_file)
+        df_all, df_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl = process_attendance_data(input_file)
 
-        format_excel_fast(df_pivot, output_file, date_range_str, sheet_name, week_periods)
+        format_excel_fast(df_all, df_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl)
 
         total_elapsed = time.perf_counter() - total_start_time
 
