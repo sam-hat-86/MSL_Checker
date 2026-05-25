@@ -4,3 +4,4 @@ fastexcel
 xlsxwriter
 zstandard
 nuitka
+jaconv
