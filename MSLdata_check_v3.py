@@ -14,7 +14,7 @@ import time
 import math
 import unicodedata
 
-
+# 画面をきれいに表示する
 def enable_windows_dpi_awareness() -> None:
     if sys.platform != "win32":
         return
@@ -26,8 +26,9 @@ def enable_windows_dpi_awareness() -> None:
         except Exception:
             pass
 
-
+# TkinterのスケーリングをDPIに合わせて調整し、UDフォントを設定する
 def configure_tk_scaling(root: tk.Tk) -> None:
+    # 画面のDPIを取得
     try:
         dpi = root.winfo_fpixels('1i')
         scale = float(dpi) / 96.0
@@ -39,6 +40,7 @@ def configure_tk_scaling(root: tk.Tk) -> None:
         except Exception:
             scale = 1.0
 
+    # DPIをもとに画面の倍率を設定
     try:
         root.tk.call('tk', 'scaling', scale)
     except Exception:
@@ -52,13 +54,15 @@ def configure_tk_scaling(root: tk.Tk) -> None:
     except Exception:
         pass
 
-
+# 進捗表示用の関数
 def progress(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
     print(f"[{ts}] {msg}")
 
-
+# Excelシートを読み込む関数。fastexcelで高速に読み込み、ヘッダー処理も行う。
+# 失敗した場合はopenpyxlでフォールバックする。
 def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.DataFrame:
+    # fastexcelで読み込み。Polarsネイティブでヘッダー処理を行う。
     try:
         import fastexcel
         excel_reader = fastexcel.read_excel(path)
@@ -116,6 +120,7 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
         progress(f"データ構築完了: 行数={df_data.height}, 列数={df_data.width}")
         return df_data
 
+    # openpyxlで読み込み。
     except Exception as e:
         progress(f"高速エンジンでの読み込み失敗。通常モードに切り替えます: {e}")
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -154,12 +159,13 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
         df = pl.DataFrame(padded_rows, schema=header, orient="row")
         return df
 
-
+# 日付から日本語の曜日を取得する関数
 def get_jp_weekday(dt_obj):
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     return weekdays[dt_obj.weekday()]
 
-
+# メインのデータ処理関数。
+# 入力ファイルを読み込み、必要な指標を計算し、集計用のDataFrameを返す。
 def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str]]:
     df = load_sheet_preserve_extra_columns(input_file, sheet_index=1)
     cols = df.columns
@@ -190,14 +196,11 @@ def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame
         max_date_file = max_dt.strftime("%Y%m%d")
 
         date_range_str = f"集計期間: {min_dt.strftime('%Y/%m/%d')}({wd_min}) ～ {max_dt.strftime('%Y/%m/%d')}({wd_max})"
-
-        sheet_name = f"{min_dt.strftime('%Y.%m.%d')}({wd_min})～{max_dt.strftime('%Y.%m.%d')}({wd_max})"
-        sheet_name = sheet_name[:31]
     else:
         min_date_file, max_date_file = "不明", "不明"
         date_range_str = "集計期間: 不明"
-        sheet_name = "集計結果"
 
+    sheet_name = "集計結果"
     now_str = datetime.now().strftime("%y%m%d-%H%M%S")
     input_dir = os.path.dirname(input_file)
     output_filename = f"集計結果_[{min_date_file}-{max_date_file}]_{now_str}.xlsx"
@@ -444,7 +447,7 @@ def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame
 
     return df_pivot_all, df_pivot_excl, df_classroom_summary, df_classroom_summary_excl, output_file, date_range_str, sheet_name, week_periods_all, week_periods_excl
 
-
+# Excelシートへの書き出し関数。xlsxwriterで高速に書き出し、見やすい書式を適用する。
 def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_summary: pl.DataFrame, df_classroom_summary_excl: pl.DataFrame, output_file: str, date_range_str: str, sheet_name: str, week_periods_all: list[str], week_periods_excl: list[str]):
     progress("xlsxwriterによる超高速書き出し・書式設定中...")
 
@@ -500,6 +503,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
         used_names.add(name)
         return name
 
+    # シートごとに書き込む関数。
+    # ヘッダーの書式設定、データの書式設定、カスタムオートフィットを行う。
     def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str], sheet_label: str, top_summary: str | None = None):
         progress(f"{sheet_label} の書き込みを開始します...")
         headers = df.columns
@@ -757,7 +762,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
     workbook.close()
     progress("Excelファイルの保存が完了しました！")
 
-
+# エラー表示用のダイアログ関数。
+# Tkinterでシンプルなウィンドウを作り、エラーメッセージを表示する。
 def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> None:
     dlg = tk.Toplevel(parent) if parent else tk.Toplevel()
     dlg.title(title)
