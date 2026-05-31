@@ -22,3 +22,6 @@ __pycache__/
 # Logs and executables generated at the project root
 *.log
 wiki/wikiルール
+
+#data
+*.xls*
