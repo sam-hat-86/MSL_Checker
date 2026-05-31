@@ -237,10 +237,12 @@ def build_test_presence_exprs(
             else pl.lit(False)
         )
 
-    has_lap_expr = _presence_expr(lap_column_names)
-    has_kaku_expr = _presence_expr(kaku_column_names)
+    lap_expr = _presence_expr(lap_column_names)
+    kaku_expr = _presence_expr(kaku_column_names)
+    has_lap_expr = lap_expr.alias("has_lap")
+    has_kaku_expr = kaku_expr.alias("has_kaku")
     # ラップまたは確認のどちらかが存在すればテストありとみなす
-    has_test_expr = (has_lap_expr | has_kaku_expr).fill_null(False)
+    has_test_expr = (lap_expr | kaku_expr).fill_null(False).alias("has_test")
     return has_lap_expr, has_kaku_expr, has_test_expr
 
 
