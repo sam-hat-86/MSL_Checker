@@ -1,0 +1,665 @@
+Option Explicit
+Public wsSource As Worksheet
+Public wsDest As Worksheet
+Public wsOp As Worksheet
+
+Public Enum 列 '将来期待枠もあり　Enum使ってたらすごそうに見えるよね
+    'S=Source、D=Dest、O=Output
+    S_勤務教室 = 3:     S_受講区分 = 5
+    S_科目 = 6:           S_日付 = 7
+    S_講師No = 10:     S_講師氏名 = 11
+    S_生徒氏名 = 13:   S_出欠 = 14
+    S_コメント = 19
+    '============
+    D_講師No = 1:        D_講師氏名 = 2
+    D_勤務教室 = 3
+    '============
+    O_講師No = 1
+    '============
+End Enum
+
+Sub 処理をまとめたやつ() 'これを実行すればOK
+    Dim time As Double: time = Timer
+    Dim flg As Long: flg = 0
+    On Error GoTo fin
+    speedUp True: init
+    flg = flg + 1: st "インポート中": If Not インポート Then GoTo fin
+    flg = flg + 1: st "日程取得中(" & (Timer - time) & ")": DoEvents: 日程取得
+    flg = flg + 1: st "講師取得中(" & (Timer - time) & ")": DoEvents: 講師取得
+    flg = flg + 1: st "授業情報中(" & (Timer - time) & ")": DoEvents: 授業取得
+    flg = flg + 1: st "集計中(" & (Timer - time) & ")": DoEvents: 集計する
+    flg = flg + 1: st "終了中(" & (Timer - time) & ")": DoEvents: time = Timer - time
+fin:
+    speedUp False
+    If flg = 6 Then
+        MsgBox "処理完了" & vbNewLine & "所要時間：" & Format(time, "0.00") & "秒で集計処理を行いました。", vbOKOnly + vbInformation, "集計処理"
+    Else
+        MsgBox "処理エラー : " & flg & vbNewLine & "処理を中断しました。", vbOKOnly + vbCritical, "集計処理"
+    End If
+End Sub
+
+Sub init() '初期設定のおまじない
+    Set wsSource = ThisWorkbook.Sheets(1)
+    Set wsDest = ThisWorkbook.Sheets(2)
+    Set wsOp = ThisWorkbook.Sheets(3)
+End Sub
+
+Sub speedUp(Optional flg As Boolean = True) 'めっちゃ早くなるやつ
+    With Application
+        .StatusBar = ""
+        .Calculation = IIf(flg, xlCalculationManual, xlCalculationAutomatic)
+        .EnableEvents = Not flg
+        .DisplayAlerts = Not flg
+        .CutCopyMode = False
+        .Cursor = IIf(flg, xlWait, xlDefault)
+        .ScreenUpdating = Not flg
+    End With
+End Sub
+
+Sub off() 'これ使ったら高速化を解除できる
+    speedUp False
+End Sub
+Sub ブック軽量化() 'これはデフォルトでしたほうがいいかも
+    If MsgBox("読み取ったデータを削除します。" & vbNewLine & "集計結果は維持され、影響はありません。", vbQuestion + vbYesNo, "ブック軽量化") = vbYes Then
+        speedUp True
+        init
+        wsSource.Cells.Clear
+        wsDest.Cells.Clear
+        speedUp False
+        MsgBox "軽量化作業が終了しました", vbOKOnly, "ブック軽量化"
+    Else
+        MsgBox "中断しました", vbOKOnly, "ブック軽量化"
+    End If
+End Sub
+
+Private Sub st(S As String)
+    Application.StatusBar = S
+End Sub
+
+Public Function LR_xlU(シート As String, col As Variant) As Long
+    With ThisWorkbook.Sheets(シート)
+        LR_xlU = .Cells(.Rows.Count, col).End(xlUp).row
+    End With
+End Function
+
+Public Function LC_xlL(シート As String, row As Long) As Long
+    With ThisWorkbook.Sheets(シート)
+        LC_xlL = .Cells(row, .Columns.Count).End(xlToLeft).Column
+    End With
+End Function
+
+Public Function 列から配列(wsName As String, colNum As Long, Optional startRow As Long = 2) As Variant
+    Dim Arr_Result() As Variant
+    Dim tmp_ColData As Variant
+    Dim i As Long
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(wsName)
+    Dim lastRow As Long: lastRow = LR_xlU(ws.Name, colNum)
+    ' データが存在しない場合の処理
+    If lastRow < startRow Then
+        列から配列 = Array()
+        Exit Function
+    End If
+    ' 指定列を一気に取得（この時点では2次元配列）
+    tmp_ColData = ws.Range(ws.Cells(startRow, colNum), ws.Cells(lastRow, colNum)).Value
+    ' 1次元配列に変換して格納
+    ReDim Arr_Result(1 To UBound(tmp_ColData, 1))
+    For i = 1 To UBound(tmp_ColData, 1)
+        Arr_Result(i) = tmp_ColData(i, 1)
+    Next i
+    列から配列 = Arr_Result
+End Function
+
+Public Function rm_pref(ByVal t As String) As String
+    Static r As Object
+    If r Is Nothing Then
+        Set r = CreateObject("VBScript.RegExp")
+        r.Global = True
+        r.IgnoreCase = True
+        r.Pattern = "[Ａ-Ｚ_]"
+    End If
+    rm_pref = r.Replace(t, "")
+End Function
+
+Sub QS(ByRef argAry As Variant, ByVal lngMin As Long, ByVal lngMax As Long)
+    Dim i As Long, j As Long, vBase As Variant, vSwap As Variant
+    i = lngMin: j = lngMax: vBase = argAry((i + j) \ 2)
+    
+    Do
+        Do While argAry(i) < vBase: i = i + 1: Loop
+        Do While argAry(j) > vBase: j = j - 1: Loop
+        
+        If i >= j Then Exit Do
+        vSwap = argAry(i)
+        argAry(i) = argAry(j)
+        argAry(j) = vSwap
+        i = i + 1: j = j - 1
+    Loop
+    
+    If (lngMin < i - 1) Then Call QS(argAry, lngMin, i - 1)
+    If (lngMax > j + 1) Then Call QS(argAry, j + 1, lngMax)
+End Sub
+
+Public Sub QS2D(ByRef pArr As Variant, ByVal pLeft As Long, ByVal pRight As Long, ByVal pCol As Long)
+    Dim i As Long, j As Long, k As Long
+    Dim pivot As Variant, tmp As Variant
+    i = pLeft: j = pRight: pivot = pArr((pLeft + pRight) \ 2, pCol)
+    Do
+        Do While pArr(i, pCol) < pivot: i = i + 1: Loop
+        Do While pArr(j, pCol) > pivot: j = j - 1: Loop
+        If i <= j Then
+            For k = LBound(pArr, 2) To UBound(pArr, 2)
+                tmp = pArr(i, k)
+                pArr(i, k) = pArr(j, k)
+                pArr(j, k) = tmp
+            Next k
+            i = i + 1: j = j - 1
+        End If
+    Loop While i <= j
+    If pLeft < j Then Call QS2D(pArr, pLeft, j, pCol)
+    If i < pRight Then Call QS2D(pArr, i, pRight, pCol)
+End Sub
+
+'一年以上範囲を設定したら多分バグる
+Function 週数(dateStr As String) As Long
+    週数 = DatePart("ww", CDate(dateStr), vbMonday)
+End Function
+
+Function インポート() As Boolean
+    インポート = False
+    MsgBox "集計用のファイルを選択してください", vbOKOnly, "集計処理"
+    
+    Dim FP As Variant
+    Dim xlApp As Object
+    Dim WB As Object
+    Dim ws As Object
+    Dim maxRow As Long
+    Dim maxCol As Long
+
+    FP = Application.GetOpenFilename("Excelファイル, *.xls; *.xlsx; *.xlsm", , "Excelファイル選択")
+    If FP = False Then
+        MsgBox "ファイルの選択がキャンセルされました。", vbExclamation, "処理終了"
+        Exit Function
+    End If
+    
+    wsSource.Cells.Clear
+    
+    Set xlApp = CreateObject("Excel.Application")
+    xlApp.Visible = False
+    xlApp.DisplayAlerts = False
+    
+    Set WB = xlApp.Workbooks.Open(Filename:=FP, ReadOnly:=True, UpdateLinks:=0)
+    Set ws = WB.Sheets(1)
+    
+    ' コピー元データの行数と列数を取得
+    maxRow = ws.UsedRange.Rows.Count
+    maxCol = ws.UsedRange.Columns.Count
+    
+    ' クリップボードを使用せず、直接「値」のみを代入
+    If maxRow > 0 And maxCol > 0 Then
+        wsSource.Range("A1").Resize(maxRow, maxCol).Value = ws.UsedRange.Value
+    End If
+
+    With wsSource.UsedRange '折り返しとか見切れるのとかをなくしたいこだわり
+        .Cells.WrapText = False
+        .EntireColumn.AutoFit
+    End With
+    
+    WB.Close SaveChanges:=False
+    xlApp.Quit
+    
+    Set ws = Nothing
+    Set WB = Nothing
+    Set xlApp = Nothing
+    インポート = True
+End Function
+
+Sub 日程取得()
+    Dim dicD As Object: Set dicD = CreateObject("Scripting.Dictionary")
+    Dim lr As Long: lr = LR_xlU(wsSource.Name, 1)
+    Dim rng As Range, dateVal
+    
+    For Each rng In wsSource.Cells(2, 列.S_日付).Resize(lr - 1)
+            dateVal = CDate(rng.Value)
+            If Not dicD.Exists(dateVal) Then dicD.Add dateVal, ""
+    Next
+    
+    ' 重複除去後のデータ件数チェック
+    If dicD.Count > 0 Then
+        Dim Arr_keys: Arr_keys = dicD.Keys
+        QS Arr_keys, LBound(Arr_keys), UBound(Arr_keys)
+        wsDest.Cells(1, 4).Resize(1, wsDest.Columns.Count - 3).ClearContents
+        wsDest.Cells(1, 4).Resize(1, dicD.Count).Value = Arr_keys
+    End If
+End Sub
+
+Sub 講師取得()
+    'キーに社員番号、アイテムに氏名と実施教室
+    Dim dicT As Object: Set dicT = CreateObject("Scripting.Dictionary")
+    '最終行を取得(ソースの1列目を参照)
+    Dim lr As Long: lr = LR_xlU(wsSource.Name, 1)
+    Dim i As Long 'ループ変数
+    Dim Arr_No, Arr_T, Arr_C '社員番号・講師氏名・実施教室を取得
+    Arr_No = 列から配列(wsSource.Name, 列.S_講師No)
+    Arr_T = 列から配列(wsSource.Name, 列.S_講師氏名)
+    Arr_C = 列から配列(wsSource.Name, 列.S_勤務教室)
+    
+    For i = LBound(Arr_No) To UBound(Arr_No)
+        If Not dicT.Exists(Arr_No(i) & "_" & Arr_C(i)) Then dicT.Add Arr_No(i) & "_" & Arr_C(i), Arr_T(i)
+    Next
+    
+    If dicT.Count <= 0 Then Exit Sub
+    
+    'ディクショナリから配列に移す
+    Dim Arr_keys, Arr_Items, opArr() As Variant
+    Arr_keys = dicT.Keys
+    Arr_Items = dicT.Items
+    ReDim opArr(1 To dicT.Count, 1 To 3)
+    For i = 0 To UBound(Arr_keys)
+        Dim keyParts
+        keyParts = Split(Arr_keys(i), "_")
+        opArr(i + 1, 1) = keyParts(0) ' Arr_No
+        opArr(i + 1, 2) = rm_pref(CStr(Arr_Items(i))) ' Arr_T
+        opArr(i + 1, 3) = keyParts(1) ' Arr_C
+    Next i
+    
+    Call QS2D(opArr, LBound(opArr, 1), UBound(opArr, 1), 3) '第二基準:実施教室
+    Call QS2D(opArr, LBound(opArr, 1), UBound(opArr, 1), 1) '第一基準:社員番号
+    With wsDest
+        .Cells(1, 列.D_講師No).Resize(, 3).Value = Array("No", "氏名", "勤務教室")
+        .Cells(2, 列.D_講師No).Resize(UBound(opArr, 1), UBound(opArr, 2)) = opArr
+    End With
+    
+    Dim lastRow As Long
+    Dim targetRange As Range
+    Dim keyRange As Range
+    lastRow = LR_xlU(wsDest.Name, 1)
+    
+    If lastRow >= 2 Then
+        Set targetRange = wsDest.Range("A2:I" & lastRow)
+        Set keyRange = wsDest.Range("A2:A" & lastRow)
+        
+        With wsDest.Sort
+            .SortFields.Clear
+            .SortFields.Add Key:=keyRange, SortOn:=xlSortOnValues, _
+                            Order:=xlAscending, DataOption:=xlSortNormal
+            .SetRange targetRange
+            .Header = xlNo
+            .MatchCase = False
+            .Orientation = xlTopToBottom
+            .SortMethod = xlPinYin
+            .Apply
+        End With
+    End If
+End Sub
+
+
+Sub 授業取得()
+    Dim lr_S As Long, lr_D As Long, lc_S As Long, lc_D As Long
+    
+    lr_S = LR_xlU(wsSource.Name, 1)
+    lr_D = LR_xlU(wsDest.Name, 1)
+    lc_S = wsSource.UsedRange.Columns.Count
+    lc_D = LC_xlL(wsDest.Name, 1)
+    
+    If lr_S < 2 Or lr_D < 2 Then Exit Sub
+    
+    ' ==========================================
+    ' 1. シートのデータをすべて配列に読み込む
+    ' ==========================================
+    Dim srcData As Variant, dstData As Variant
+    srcData = wsSource.Range(wsSource.Cells(1, 1), wsSource.Cells(lr_S, lc_S)).Value
+    dstData = wsDest.Range(wsDest.Cells(1, 1), wsDest.Cells(lr_D, lc_D)).Value
+    
+    ' ==========================================
+    ' 2. 高速検索用のDictionary（辞書）を作成
+    ' ==========================================
+    Dim rowDict As Object, colDict As Object
+    Set rowDict = CreateObject("Scripting.Dictionary")
+    Set colDict = CreateObject("Scripting.Dictionary")
+    
+    Dim i As Long
+    ' 行の検索用：キー「講師No_勤務教室」、値「Dest側の行番号」
+    For i = 2 To lr_D
+        rowDict(dstData(i, 1) & "_" & dstData(i, 3)) = i
+    Next
+    
+    ' 列の検索用：キー「日付の数値」、値「Dest側の列番号」
+    For i = 4 To lc_D
+        If IsDate(dstData(1, i)) Then
+            colDict(CLng(CDate(dstData(1, i)))) = i
+        ElseIf IsNumeric(dstData(1, i)) And dstData(1, i) > 0 Then
+            colDict(CLng(dstData(1, i))) = i
+        End If
+    Next
+    
+    ' ==========================================
+    ' 3. 各項目の開始位置と対象列を事前に特定
+    ' ==========================================
+    Dim lapStart As Long, hwStart As Long
+    For i = 1 To lc_S
+        If srcData(1, i) Like "ラップテスト*" Then lapStart = i: Exit For
+    Next
+    For i = lapStart To lc_S
+        If srcData(1, i) = "宿題名" Then hwStart = i: Exit For
+    Next
+    
+    ' Like検索を毎行行うのを防ぐため、対象となる列番号を記憶しておく
+    Dim lapCols() As Long, lapCnt As Long
+    Dim kakuCols() As Long, kakuCnt As Long
+    ReDim lapCols(1 To lc_S): ReDim kakuCols(1 To lc_S)
+    
+    For i = lapStart To hwStart - 1
+        If srcData(1, i) Like "ラップ*（分子）" Then
+            lapCnt = lapCnt + 1: lapCols(lapCnt) = i
+        End If
+        If srcData(1, i) Like "確認*（分子）" Then
+            kakuCnt = kakuCnt + 1: kakuCols(kakuCnt) = i
+        End If
+    Next
+    
+    ' 出力先エリアの初期化（メモリ上の配列をクリア）
+    Dim r As Long, c As Long
+    For r = 2 To lr_D
+        For c = 4 To lc_D
+            dstData(r, c) = Empty
+        Next
+    Next
+    
+    ' ==========================================
+    ' 4. メイン処理（すべてメモリ上の配列で計算）
+    ' ==========================================
+    Dim rDst As Long, cDst As Long
+    Dim dKey As Long, rowKey As String
+    Dim op1 As Long, op2 As Boolean, op3 As Boolean
+    Dim newVal As String
+    
+    For r = 2 To lr_S
+        ' 出席の場合のみ処理
+        If srcData(r, 列.S_出欠) = "出席" Then
+            rowKey = srcData(r, 列.S_講師No) & "_" & srcData(r, 列.S_勤務教室)
+            
+            ' Dictionaryを使って瞬時に出力先の行番号を取得
+            If rowDict.Exists(rowKey) Then
+                rDst = rowDict(rowKey)
+                
+                If IsDate(srcData(r, 列.S_日付)) Then
+                    dKey = CLng(CDate(srcData(r, 列.S_日付)))
+                    
+                    ' Dictionaryを使って瞬時に出力先の列番号を取得
+                    If colDict.Exists(dKey) Then
+                        cDst = colDict(dKey)
+                        
+                        ' ① Lapテストチェック
+                        op2 = False
+                        For i = 1 To lapCnt
+                            If srcData(r, lapCols(i)) <> "" Then op2 = True: Exit For
+                        Next
+                        
+                        ' ② 確認テストチェック
+                        op3 = False
+                        For i = 1 To kakuCnt
+                            If srcData(r, kakuCols(i)) <> "" Then op3 = True: Exit For
+                        Next
+                        
+                        ' ③ 宿題チェック（空欄があっても最後まで探索するよう改善）
+                        op1 = 0
+                        For i = hwStart To lc_S Step 3
+                            If i + 2 > lc_S Then Exit For ' エラー防止
+                            If srcData(r, i) <> "" Then ' 宿題名が入力されている場合のみ計算
+                                ' Val関数を使うことで数値以外の文字が入っていてもエラーを防止
+                                op1 = op1 + Val(srcData(r, i + 2)) - Val(srcData(r, i + 1)) + 1
+                            End If
+                        Next
+                        
+                        ' 文字列の結合
+                        newVal = CStr(op1) & "," & CStr(op2) & "," & CStr(op3)
+                        
+                        ' 配列に結果を格納
+                        If dstData(rDst, cDst) = "" Then
+                            dstData(rDst, cDst) = newVal
+                        Else
+                            dstData(rDst, cDst) = dstData(rDst, cDst) & "," & newVal
+                        End If
+                        
+                    End If
+                End If
+            End If
+        End If
+    Next
+    
+    ' ==========================================
+    ' 5. 完成したデータを一括でシートに出力
+    ' ==========================================
+    If lr_D >= 2 And lc_D >= 4 Then
+        wsDest.Range(wsDest.Cells(2, 4), wsDest.Cells(lr_D, lc_D)).ClearContents
+    End If
+    
+    wsDest.Range(wsDest.Cells(1, 1), wsDest.Cells(lr_D, lc_D)).Value = dstData
+
+End Sub
+
+Sub 集計する()
+    Dim i As Long, j As Long, k As Long
+    Dim lc_O As Long, lr_O As Long
+    Dim lc_D As Long, lr_D As Long
+    Dim V As String, U As Long
+    Dim firstDate As String, firstWW As Long
+    Dim lastDate As String, lastWW As Long
+    Dim currentDate As String, currentWW As Long
+    Dim numWeeks As Long
+    Dim wIdx As Long
+    Dim baseCol As Long
+    Dim classCnt As Long
+    Dim isLap As Boolean
+    Dim isTest As Boolean
+    Dim t As Double
+    
+    Dim flg As Boolean: flg = (wsSource Is Nothing)
+    If flg Then
+        t = Timer
+        speedUp True: init
+    End If
+    
+    lc_O = wsOp.UsedRange.Columns.Count
+    lr_O = wsOp.UsedRange.Rows.Count
+    lc_D = LC_xlL(wsDest.Name, 1)
+    lr_D = LR_xlU(wsDest.Name, 列.D_講師No)
+    
+    If lc_D < 4 Or lr_D < 2 Then GoTo Terminate
+    
+    Dim destData As Variant
+    destData = wsDest.Range(wsDest.Cells(1, 1), wsDest.Cells(lr_D, lc_D)).Value
+    
+    firstDate = destData(1, 4)
+    lastDate = destData(1, lc_D)
+    firstWW = 週数(firstDate)
+    lastWW = 週数(lastDate)
+    numWeeks = lastWW - firstWW + 1
+
+    If numWeeks < 1 Then GoTo Terminate
+    
+    Dim outData() As Variant
+    ReDim outData(1 To lr_D - 1, 1 To numWeeks * 6)
+
+    Dim r As Long, c As Long
+    For r = 1 To UBound(outData, 1)
+        For c = 1 To UBound(outData, 2)
+            outData(r, c) = 0
+        Next
+    Next
+
+    If lr_O >= 5 Then
+        wsOp.Cells(5, 1).Resize(lr_O - 4, lc_O).ClearContents
+    End If
+    with wsOp.Cells(5, 1).Resize(lr_D - 1, 3)
+        .Value = wsDest.Cells(2, 1).Resize(lr_D - 1, 3).Value
+        .Borders.LineStyle = xlContinuous
+    end with
+
+    Dim n As Long
+    n = 6 * numWeeks + 3
+    With wsOp.Cells(1, 1)
+        .EntireRow.Clear
+        With .Resize(1, n).Cells
+            .NumberFormat = "yyyy/mm/dd(aaa)"
+            .HorizontalAlignment = xlCenter
+        End With
+    End With
+
+    Dim Arr_split As Variant
+    Dim vRaw As Variant
+
+    For i = 4 To lc_D
+        currentDate = destData(1, i)
+        currentWW = 週数(currentDate)
+        
+        wIdx = currentWW - firstWW + 1
+        n = 6 * wIdx - 2
+
+        With wsOp.Cells(1, n)
+            If .Value = "" Then
+                .Value = currentDate
+                .Resize(1, 2).Merge
+                .HorizontalAlignment = xlRight
+                wsOp.Cells(1, n + 2).Value = "～"
+            End If
+            With wsOp.Cells(1, n + 3)
+                .Value = currentDate
+                .Resize(1, 3).Merge
+                .HorizontalAlignment = xlLeft
+            End With
+        End With
+
+        For j = 2 To lr_D
+            vRaw = destData(j, i)
+            If Not IsError(vRaw) Then
+                If vRaw <> "" Then
+                    V = CStr(vRaw)
+                    Arr_split = Split(V, ",")
+                    U = UBound(Arr_split) + 1
+                    classCnt = U \ 3
+
+                    baseCol = (wIdx - 1) * 6
+
+                    outData(j - 1, baseCol + 1) = outData(j - 1, baseCol + 1) + classCnt
+
+                    For k = 1 To classCnt
+                        isLap = (Val(Arr_split(3 * k - 2)) <> 0 Or UCase(Trim(Arr_split(3 * k - 2))) = "TRUE")
+                        isTest = (Val(Arr_split(3 * k - 1)) <> 0 Or UCase(Trim(Arr_split(3 * k - 1))) = "TRUE")
+
+                        outData(j - 1, baseCol + 2) = outData(j - 1, baseCol + 2) + Val(Arr_split(3 * k - 3))
+
+                        If isLap Then
+                            outData(j - 1, baseCol + 3) = outData(j - 1, baseCol + 3) + 1
+                        End If
+
+                        If isLap Or isTest Then
+                            outData(j - 1, baseCol + 5) = outData(j - 1, baseCol + 5) + 1
+                        End If
+                    Next
+                End If
+            End If
+        Next
+    Next
+
+    For r = 1 To UBound(outData, 1)
+        For wIdx = 1 To numWeeks
+            baseCol = (wIdx - 1) * 6
+            classCnt = outData(r, baseCol + 1)
+
+            If classCnt > 0 Then
+                outData(r, baseCol + 2) = Round(outData(r, baseCol + 2) / classCnt, 1)
+                outData(r, baseCol + 4) = outData(r, baseCol + 3) / classCnt
+                outData(r, baseCol + 6) = outData(r, baseCol + 5) / classCnt
+            Else
+                For k = 2 To 6
+                    outData(r, baseCol + k) = "-"
+                Next
+            End If
+        Next
+    Next
+
+    Dim outRng As Range
+    Set outRng = wsOp.Cells(5, 4).Resize(UBound(outData, 1), UBound(outData, 2))
+    outRng.Value = outData
+    
+    Dim fullRng As Range
+    Dim rIdx As Long
+    Set fullRng = wsOp.Cells(5, 1).Resize(UBound(outData, 1), UBound(outData, 2) + 3)
+    fullRng.Interior.Pattern = xlNone
+    fullRng.Font.ColorIndex = xlAutomatic
+    outRng.Borders.LineStyle = xlContinuous
+    
+    Dim rGray As Range
+    Dim rKhaki As Range
+    Dim rOrange As Range
+    Dim rFireBrick As Range
+    
+    For rIdx = 2 To fullRng.Rows.Count Step 2
+        If rGray Is Nothing Then
+            Set rGray = fullRng.Rows(rIdx)
+        Else
+            Set rGray = Union(rGray, fullRng.Rows(rIdx))
+        End If
+    Next
+    
+    For wIdx = 1 To numWeeks
+        baseCol = (wIdx - 1) * 6
+        
+        If rKhaki Is Nothing Then
+            Set rKhaki = outRng.Columns(baseCol + 1)
+        Else
+            Set rKhaki = Union(rKhaki, outRng.Columns(baseCol + 1))
+        End If
+        
+        outRng.Columns(baseCol + 4).NumberFormat = "0.0%"
+        outRng.Columns(baseCol + 6).NumberFormat = "0.0%"
+        
+        For rIdx = 1 To UBound(outData, 1)
+            If outData(rIdx, baseCol + 1) > 0 Then
+                If IsNumeric(outData(rIdx, baseCol + 2)) Then
+                    If outData(rIdx, baseCol + 2) < 6 Then
+                        If rOrange Is Nothing Then Set rOrange = outRng.Cells(rIdx, baseCol + 2) Else Set rOrange = Union(rOrange, outRng.Cells(rIdx, baseCol + 2))
+                    End If
+                End If
+                
+                If IsNumeric(outData(rIdx, baseCol + 4)) Then
+                    If outData(rIdx, baseCol + 4) < 0.7 Then
+                        If rFireBrick Is Nothing Then Set rFireBrick = outRng.Cells(rIdx, baseCol + 4) Else Set rFireBrick = Union(rFireBrick, outRng.Cells(rIdx, baseCol + 4))
+                    End If
+                End If
+                
+                If IsNumeric(outData(rIdx, baseCol + 6)) Then
+                    If outData(rIdx, baseCol + 6) < 0.7 Then
+                        If rFireBrick Is Nothing Then Set rFireBrick = outRng.Cells(rIdx, baseCol + 6) Else Set rFireBrick = Union(rFireBrick, outRng.Cells(rIdx, baseCol + 6))
+                    End If
+                End If
+            End If
+        Next rIdx
+    Next wIdx
+
+    If Not rGray Is Nothing Then rGray.Interior.Color = RGB(245, 245, 245)
+    If Not rKhaki Is Nothing Then rKhaki.Interior.Color = rgbKhaki
+    If Not rOrange Is Nothing Then rOrange.Interior.Color = rgbOrange
+    If Not rFireBrick Is Nothing Then
+        rFireBrick.Interior.Color = rgbFireBrick
+        rFireBrick.Font.Color = vbWhite
+    End If
+
+    With wsOp.Cells(5, 列.O_講師No)
+        .Resize(lr_D - 1).NumberFormat = "00000000"
+        .Resize(1, 3).EntireColumn.AutoFit
+    End With
+
+    wsOp.Activate
+    Application.Goto wsOp.Cells(1, 1)
+    wsOp.Cells(5, 4).Select
+    ActiveWindow.FreezePanes = False
+    ActiveWindow.FreezePanes = True
+    
+Terminate:
+    If flg Then
+        speedUp False
+        MsgBox "完了：" & Round(Timer - t, 2) & "秒", vbOKOnly, "集計処理"
+    End If
+End Sub

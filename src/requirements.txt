@@ -1,0 +1,9 @@
+polars
+openpyxl
+fastexcel
+xlsxwriter
+zstandard
+nuitka
+jaconv
+pandas
+pyarrow

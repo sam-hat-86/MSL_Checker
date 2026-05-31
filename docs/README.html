@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSL Checker - ドキュメント</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, 'Noto Sans JP';
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        main {
+            padding: 40px 30px;
+        }
+
+        section {
+            margin-bottom: 40px;
+        }
+
+        section h2 {
+            color: #667eea;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        section h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+
+        ul, ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+
+        ul li, ol li {
+            margin-bottom: 10px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e83e8c;
+        }
+
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin-bottom: 15px;
+            line-height: 1.4;
+            font-family: 'Courier New', monospace;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        tr:hover {
+            background: #f0f0f0;
+        }
+
+        .feature-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .feature-box strong {
+            color: #667eea;
+        }
+
+        .color-swatch {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #ccc;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .warning strong {
+            color: #856404;
+        }
+
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        footer {
+            background: #f5f5f5;
+            border-top: 1px solid #ddd;
+            padding: 20px 30px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        a {
+            color: #667eea;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        .toc {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+        }
+
+        .toc ul {
+            margin-left: 20px;
+        }
+
+        .toc a {
+            text-decoration: none;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            main {
+                padding: 20px;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            section h2 {
+                font-size: 1.4em;
+            }
+
+            table {
+                font-size: 0.9em;
+            }
+
+            th, td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 MSL Checker</h1>
+            <p>Excel出席・授業データ自動集計・分析ツール</p>
+        </header>
+
+        <main>
+            <div class="toc">
+                <h3>目次</h3>
+                <ul>
+                    <li><a href="#features">機能</a></li>
+                    <li><a href="#requirements">必要要件</a></li>
+                    <li><a href="#installation">インストール</a></li>
+                    <li><a href="#usage">使用方法</a></li>
+                    <li><a href="#input">入力ファイルの要件</a></li>
+                    <li><a href="#output">出力ファイル</a></li>
+                    <li><a href="#technical">技術詳細</a></li>
+                    <li><a href="#troubleshooting">トラブルシューティング</a></li>
+                </ul>
+            </div>
+
+            <section id="features">
+                <h2>機能</h2>
+
+                <div class="feature-box">
+                    <strong>⚡ 高速データ読み込み</strong><br>
+                    fastexcel エンジンによる高速化（フォールバック対応）
+                </div>
+
+                <div class="feature-box">
+                    <strong>🧹 自動データクレンジング</strong><br>
+                    全角英数字変換、列名の自動生成・重複排除
+                </div>
+
+                <div class="feature-box">
+                    <strong>📈 複数指標の計算</strong><br>
+                    <ul style="margin-top: 10px;">
+                        <li>授業数（出席人数）</li>
+                        <li>宿題平均ページ数</li>
+                        <li>ラップテスト実施状況</li>
+                        <li>確認テスト実施状況</li>
+                        <li>テスト実施率</li>
+                    </ul>
+                </div>
+
+                <div class="feature-box">
+                    <strong>📋 週別レポート生成</strong><br>
+                    ピボット処理による講師別・週別の見やすいサマリー
+                </div>
+
+                <div class="feature-box">
+                    <strong>✨ 高度なExcel装飾</strong><br>
+                    <ul style="margin-top: 10px;">
+                        <li>条件付き書式（宿題平均 &lt; 6ページ：オレンジ、テスト率 &lt; 70%：赤）</li>
+                        <li>ペイン固定・オートフィルター設定</li>
+                        <li>日本語フォント対応（Noto Sans JP）</li>
+                        <li>高DPI対応</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="requirements">
+                <h2>必要要件</h2>
+                <ul>
+                    <li>Python 3.8以上</li>
+                    <li>必要なパッケージ:</li>
+                </ul>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>パッケージ</th>
+                            <th>説明</th>
+                            <th>必須</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>polars</code></td>
+                            <td>高速データフレーム処理</td>
+                            <td>✅</td>
+                        </tr>
+                        <tr>
+                            <td><code>openpyxl</code></td>
+                            <td>Excel読み書き</td>
+                            <td>✅</td>
+                        </tr>
+                        <tr>
+                            <td><code>xlsxwriter</code></td>
+                            <td>高速Excel出力</td>
+                            <td>✅</td>
+                        </tr>
+                        <tr>
+                            <td><code>fastexcel</code></td>
+                            <td>高速Excelリーダー</td>
+                            <td>推奨</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="installation">
+                <h2>インストール</h2>
+
+                <h3>推奨方法</h3>
+                <pre><code>pip install -r requirements.txt</code></pre>
+
+                <h3>個別インストール</h3>
+                <pre><code>pip install polars openpyxl xlsxwriter fastexcel</code></pre>
+
+                <div class="warning">
+                    <strong>⚠️ 注意:</strong> fastexcel は一部の環境ではインストールに時間がかかることがあります。インストール失敗時は openpyxl へ自動フォールバックされます。
+                </div>
+            </section>
+
+            <section id="usage">
+                <h2>使用方法</h2>
+
+                <h3>基本的な実行方法</h3>
+                <pre><code>python MSLdata_check.py</code></pre>
+
+                <p>GUI ファイルダイアログが表示されるので、集計元の Excelファイル（.xlsx/.xls/.xlsm）を選択してください。</p>
+
+                <div class="success">
+                    <strong>✅ 処理フロー:</strong>
+                    <ol style="margin-top: 10px;">
+                        <li>ファイル選択ダイアログが表示</li>
+                        <li>Excelファイルを読み込み</li>
+                        <li>データクレンジングと指標計算</li>
+                        <li>週別集計とピボット処理</li>
+                        <li>Excel出力ファイルを生成</li>
+                        <li>完了メッセージを表示</li>
+                    </ol>
+                </div>
+            </section>
+
+            <section id="input">
+                <h2>入力ファイルの要件</h2>
+
+                <h3>必須列</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>列名</th>
+                            <th>説明</th>
+                            <th>例</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>出欠</code></td>
+                            <td>出席状況</td>
+                            <td>出席、欠席</td>
+                        </tr>
+                        <tr>
+                            <td><code>担当講師名</code></td>
+                            <td>講師名</td>
+                            <td>田中太郎</td>
+                        </tr>
+                        <tr>
+                            <td><code>担当講師N0</code></td>
+                            <td>講師ID</td>
+                            <td>001</td>
+                        </tr>
+                        <tr>
+                            <td><code>教室</code></td>
+                            <td>教室情報</td>
+                            <td>A教室</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>オプション列</h3>
+                <ul>
+                    <li><code>日付</code> または <code>授業日</code> - 集計期間の自動判定用</li>
+                    <li><code>ラップテスト</code>系の列 - ラップテスト実施状況</li>
+                    <li><code>確認</code>系の列 - 確認テスト実施状況</li>
+                    <li><code>宿題名</code>系の列（3列1セット）:
+                        <ul>
+                            <li>宿題名</li>
+                            <li>宿題開始ページ</li>
+                            <li>宿題終了ページ</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <section id="output">
+                <h2>出力ファイル</h2>
+
+                <p>生成されるファイルの形式:</p>
+                <pre><code>集計結果_[YYYYMMDD-YYYYMMDD]_YYMMDD-HHMMSS.xlsx</code></pre>
+
+                <p>ファイルは入力ファイルと同じディレクトリに出力されます。</p>
+
+                <h3>シート構成</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>列</th>
+                            <th>説明</th>
+                            <th>背景色</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>No</td>
+                            <td>講師ID</td>
+                            <td>（なし）</td>
+                        </tr>
+                        <tr>
+                            <td>氏名</td>
+                            <td>講師名</td>
+                            <td>（なし）</td>
+                        </tr>
+                        <tr>
+                            <td>教室</td>
+                            <td>教室</td>
+                            <td>（なし）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>総授業数</strong></td>
+                            <td><strong>全週の授業数合計</strong></td>
+                            <td><span class="color-swatch" style="background-color: #E6E6FA;"></span> Lavender #E6E6FA</td>
+                        </tr>
+                        <tr>
+                            <td>授業1, 授業2,...</td>
+                            <td>各週の出席数</td>
+                            <td><span class="color-swatch" style="background-color: #F0E68C;"></span> Khaki #F0E68C</td>
+                        </tr>
+                        <tr>
+                            <td>平均HW1, 平均HW2,...</td>
+                            <td>各週の宿題平均ページ数</td>
+                            <td>グレー/白 交互</td>
+                        </tr>
+                        <tr>
+                            <td>Lap数1, Lap数2,...</td>
+                            <td>各週のラップテスト実施数</td>
+                            <td>グレー/白 交互</td>
+                        </tr>
+                        <tr>
+                            <td>Lap％1, Lap％2,...</td>
+                            <td>各週のラップ実施率</td>
+                            <td>グレー/白 交互</td>
+                        </tr>
+                        <tr>
+                            <td>テスト数1, テスト数2,...</td>
+                            <td>各週の確認テスト実施数</td>
+                            <td>グレー/白 交互</td>
+                        </tr>
+                        <tr>
+                            <td>テスト％1, テスト％2,...</td>
+                            <td>各週のテスト実施率</td>
+                            <td>グレー/白 交互</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>条件付き書式</h3>
+                <ul>
+                    <li><span class="color-swatch" style="background-color: #FFA500;"></span> <strong>宿題平均 &lt; 6ページ</strong>: オレンジ背景</li>
+                    <li><span class="color-swatch" style="background-color: #B22222;"></span> <strong>テスト実施率 &lt; 70%</strong>: 深紅背景（白文字）</li>
+                </ul>
+            </section>
+
+            <section id="technical">
+                <h2>技術詳細</h2>
+
+                <h3>データ処理フロー</h3>
+                <ol>
+                    <li><strong>ファイル読み込み</strong>
+                        <ul>
+                            <li>fastexcel → openpyxl へのフォールバック対応</li>
+                            <li>余分な列の自動ネーミング</li>
+                        </ul>
+                    </li>
+                    <li><strong>データクレンジング</strong>
+                        <ul>
+                            <li>出席データのフィルリング</li>
+                            <li>全角英数字 → 半角変換</li>
+                        </ul>
+                    </li>
+                    <li><strong>指標計算</strong>
+                        <ul>
+                            <li>宿題ページ数: 終了ページ - 開始ページ + 1</li>
+                            <li>テスト実施有無の判定</li>
+                        </ul>
+                    </li>
+                    <li><strong>ピボット処理</strong>
+                        <ul>
+                            <li>講師・教室別、週別の集計</li>
+                        </ul>
+                    </li>
+                    <li><strong>Excel出力</strong>
+                        <ul>
+                            <li>xlsxwriter による高速フォーマット</li>
+                            <li>日本語フォント対応</li>
+                            <li>高DPI対応</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <h3>パフォーマンス</h3>
+                <p>10,000行程度のデータで数秒以内に完了</p>
+            </section>
+
+            <section id="troubleshooting">
+                <h2>トラブルシューティング</h2>
+
+                <h3>❌ エラー「必須の列が見つかりません」</h3>
+                <p>入力ファイルに以下の列が存在することを確認してください:</p>
+                <ul>
+                    <li>出欠</li>
+                    <li>担当講師名</li>
+                    <li>担当講師N0</li>
+                    <li>教室</li>
+                </ul>
+
+                <h3>❌ ファイルが開けない</h3>
+                <ul>
+                    <li>Excelファイルが破損していないか確認</li>
+                    <li><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code> 形式に対応しています</li>
+                </ul>
+
+                <h3>⏱️ Excel出力が遅い</h3>
+                <ul>
+                    <li>大規模ファイル（50,000行以上）の場合、読み込みに時間がかかることがあります</li>
+                    <li>fastexcel パッケージが正しくインストールされているか確認</li>
+                </ul>
+
+                <h3>🖥️ Windows DPI対応</h3>
+                <p>このツールは高DPI ディスプレイに自動対応します:</p>
+                <ul>
+                    <li>GUI自動スケーリング</li>
+                    <li>フォント自動調整</li>
+                    <li>日本語フォント（Noto Sans JP）使用で見やすさ向上</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>ライセンス</h2>
+                <p>MIT License</p>
+            </section>
+
+            <section>
+                <h2>変更履歴</h2>
+                <h3>v1.0.0 (2026-05-14)</h3>
+                <ul>
+                    <li>初版リリース</li>
+                    <li>D列に総授業数を追加（Lavender色 #E6E6FA）</li>
+                    <li>日本語フォント完全対応</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>MSL Checker © 2026 | Development Team</p>
+            <p>最終更新: 2026年5月14日</p>
+        </footer>
+    </div>
+</body>
+</html>
