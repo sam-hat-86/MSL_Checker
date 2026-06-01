@@ -15,6 +15,83 @@ import ctypes
 import tkinter.font as tkfont
 import traceback
 import time
+import math
+
+
+# Minimal compatibility shim for v4 fallback and progress
+_v4 = None
+
+def progress(msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}")
+
+EXCLUDED_HW_TERMS = [
+    "たんご",
+    "単語",
+    "しすたん",
+    "シスタン",
+    "シス単",
+    "たーげっと",
+    "ターゲット",
+    "りーぷ",
+    "リープ",
+    "Leap",
+    "LEAP",
+    "まどんな",
+    "マドンナ",
+]
+
+DEFAULT_NORMALIZE_WORKERS = 6
+DEFAULT_NORMALIZE_CHUNKSIZE = 100
+
+# フォント優先リスト（環境に応じて先頭から利用可否を判定）
+FONT_PREFERRED = [
+    "Noto Sans JP",
+    "Yu Gothic",
+    "Meiryo",
+    "Meiryo UI",
+    "MS UI Gothic",
+    "MS Gothic",
+    "Arial Unicode MS",
+    "Arial",
+]
+
+
+def select_font(preferred: list[str] | None = None) -> str:
+    """インストール済みフォントから優先リストの先頭を返す。見つからなければ 'Calibri' を返す。
+
+    Tk が利用できない（ヘッドレス）環境でも安全に動作するよう例外を捕捉する。
+    """
+    prefs = preferred or FONT_PREFERRED
+    try:
+        # tkinter のフォント一覧を一時的に取得
+        root_tmp = tk.Tk()
+        root_tmp.withdraw()
+        fams = set(tkfont.families())
+        root_tmp.destroy()
+        for f in prefs:
+            if f in fams:
+                return f
+    except Exception:
+        # ヘッドレス等で取得できない場合は次の選択肢へ
+        pass
+
+    # 最後の砦として環境に依らない常用フォントを返す
+    for f in prefs:
+        return f
+    return "Calibri"
+
+def normalize_text_for_matching(s: object) -> str:
+    if s is None:
+        return ""
+    t = str(s)
+    t = unicodedata.normalize("NFKC", t)
+    t = t.lower()
+    t = re.sub(r"\s+", "", t)
+    return t
+
+def parallel_normalize(values, workers: int = 1, chunksize: int = 100):
+    return [normalize_text_for_matching(v) for v in values]
 
 
 
@@ -29,81 +106,79 @@ def enable_windows_dpi_awareness() -> None:
         except Exception:
             pass
 
-
-# 進捗表示などの共通ヘルパーは可能なら v4 から再利用する
-
-# Try to import helpers from v4; if missing, provide concrete fallbacks
-_v4 = None
-try:
-    _v4 = importlib.import_module("MSLdata_check_v4")
-except Exception:
-    _v4 = None
-
-if _v4 is not None and hasattr(_v4, "progress"):
-    progress = _v4.progress
-else:
-    def progress(msg: str) -> None:
-        ts = time.strftime("%H:%M:%S")
-        print(f"[{ts}] {msg}")
-
-EXCLUDED_HW_TERMS = getattr(_v4, "EXCLUDED_HW_TERMS", [
-    "たんご",
-    "単語",
-    "しすたん",
-    "シスタン",
-    "シス単",
-    "たーげっと",
-    "ターゲット",
-    "りーぷ",
-    "リープ",
-    "Leap",
-    "LEAP",
-    "まどんな",
-    "マドンナ",
-])
-
-DEFAULT_NORMALIZE_WORKERS = getattr(_v4, "DEFAULT_NORMALIZE_WORKERS", 6)
-DEFAULT_NORMALIZE_CHUNKSIZE = getattr(_v4, "DEFAULT_NORMALIZE_CHUNKSIZE", 100)
-
-if _v4 is not None and hasattr(_v4, "normalize_text_for_matching"):
-    normalize_text_for_matching = _v4.normalize_text_for_matching
-else:
-    def normalize_text_for_matching(s: object) -> str:
-        if s is None:
-            return ""
-        t = str(s)
-        t = unicodedata.normalize("NFKC", t)
-        t = t.lower()
-        t = re.sub(r"\s+", "", t)
-        return t
-
-if _v4 is not None and hasattr(_v4, "parallel_normalize"):
-    parallel_normalize = _v4.parallel_normalize
-else:
-    def parallel_normalize(values, workers: int = 1, chunksize: int = 100):
-        return [normalize_text_for_matching(v) for v in values]
-
-if _v4 is not None and hasattr(_v4, "load_sheet_preserve_extra_columns"):
-    load_sheet_preserve_extra_columns = _v4.load_sheet_preserve_extra_columns
-else:
-    def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.DataFrame:
-        try:
-            df_pd = pd.read_excel(path, sheet_name=sheet_index - 1)
-            return pl.DataFrame(df_pd)
-        except Exception:
-            return pl.DataFrame()
-
 if _v4 is not None and hasattr(_v4, "build_hw_pages_expr"):
     build_hw_pages_expr = _v4.build_hw_pages_expr
 else:
-    def build_hw_pages_expr(hw_name_column: str, hw_start_column: str, hw_end_column: str, excluded_terms: list[str], page_limit: int = 30) -> pl.Expr:
-        return pl.lit(0)
+    def build_hw_pages_expr(
+        hw_name_column: str,
+        hw_start_column: str,
+        hw_end_column: str,
+        excluded_terms: list[str],
+        page_limit: int = 30,
+    ) -> pl.Expr:
+        # 名前列を文字列として正規化（NULL->""）
+        hw_name_expr = pl.col(hw_name_column).cast(pl.Utf8).fill_null("").str.strip_chars()
+
+        active_excluded_hw_terms = [term for term in excluded_terms if str(term).strip()]
+
+        is_excluded_hw_expr = (
+            pl.any_horizontal(
+                [hw_name_expr.str.contains(term, literal=True) for term in active_excluded_hw_terms]
+            )
+            if active_excluded_hw_terms
+            else pl.lit(False)
+        )
+
+        hw_start_page_expr = (
+            pl.col(hw_start_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
+        )
+        hw_end_page_expr = (
+            pl.col(hw_end_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
+        )
+
+        hw_page_count_expr = hw_end_page_expr - hw_start_page_expr + 1
+
+        capped_hw_page_count_expr = (
+            pl.when(hw_page_count_expr.is_null())
+            .then(0)
+            .when(hw_page_count_expr < 0)
+            .then(0)
+            .when(hw_page_count_expr > page_limit)
+            .then(page_limit)
+            .otherwise(hw_page_count_expr)
+        )
+
+        return (
+            pl.when(hw_name_expr != "")
+            .then(pl.when(~is_excluded_hw_expr).then(capped_hw_page_count_expr).otherwise(0))
+            .otherwise(0)
+        )
 
 if _v4 is not None and hasattr(_v4, "build_test_presence_exprs"):
     build_test_presence_exprs = _v4.build_test_presence_exprs
 else:
-    def build_test_presence_exprs(lap_column_names: list[str], kaku_column_names: list[str]):
-        return pl.lit(False), pl.lit(False), pl.lit(False)
+    def build_test_presence_exprs(
+        lap_column_names: list[str], kaku_column_names: list[str]
+    ) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
+        def _presence_expr(column_names: list[str]) -> pl.Expr:
+            presence_checks = [
+                pl.col(column_name).is_not_null()
+                & (pl.col(column_name).cast(pl.Utf8).str.strip_chars() != "")
+                for column_name in column_names
+            ]
+
+            return (
+                pl.any_horizontal(presence_checks).fill_null(False)
+                if presence_checks
+                else pl.lit(False)
+            )
+
+        lap_expr = _presence_expr(lap_column_names)
+        kaku_expr = _presence_expr(kaku_column_names)
+        has_lap_expr = lap_expr.alias("has_lap")
+        has_kaku_expr = kaku_expr.alias("has_kaku")
+        has_test_expr = (lap_expr | kaku_expr).fill_null(False).alias("has_test")
+        return has_lap_expr, has_kaku_expr, has_test_expr
 
 # will prefer v4 implementation after local definition if available
 
@@ -320,7 +395,7 @@ def process_attendance_data(
 
     progress("列インデックスの特定中...")
     if date_col is not None:
-        dt_expr = pl.col(date_col).cast(pl.Date).dt
+        dt_expr = pl.col(date_col).cast(pl.Date, strict=False).dt
         dt_iso = cast(Any, dt_expr).week()
     else:
         dt_iso = pl.lit(None)
@@ -675,7 +750,7 @@ def format_excel_fast(
     # pandas の ExcelWriter を使ってデータを一括書き出しする（高速化）
     with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
         workbook = writer.book
-        ud_font = "Noto Sans JP"
+        ud_font = select_font()
 
         fmt_title = workbook.add_format({
             "font_name": ud_font,
@@ -846,6 +921,12 @@ def format_excel_fast(
                 worksheet = workbook.add_worksheet(sheet_title)
                 writer.sheets[sheet_title] = worksheet
 
+            # デフォルトの列書式を全列に適用しておく（データ行にもフォントが反映される）
+            try:
+                worksheet.set_column(0, max_col, None, fmt_white)
+            except Exception:
+                pass
+
             # データ列を一括書き出す
             for col_idx, col_name in enumerate(headers):
                 arr = col_values.get(col_name, ["-"] * nrows)
@@ -902,12 +983,33 @@ def format_excel_fast(
                 else:
                     max_c_width = max(max_c_width, float(max_len) * 1.6)
 
-            worksheet.set_column(0, 0, max_a_width + 3)
-            worksheet.set_column(1, 1, max_b_width + 3)
-            worksheet.set_column(2, 2, max_c_width + 3)
-            worksheet.set_column(3, 3, 9)
+            worksheet.set_column(0, 0, max_a_width + 3, fmt_white)
+            worksheet.set_column(1, 1, max_b_width + 3, fmt_white)
+            worksheet.set_column(2, 2, max_c_width + 3, fmt_white)
+            # 総授業数列は D 列 (index 3) なので目立つ色にする
+            worksheet.set_column(3, 3, 9, fmt_lavender)
             if max_col >= 4:
-                worksheet.set_column(4, max_col, 9)
+                worksheet.set_column(4, max_col, 9, fmt_white)
+
+            # 各週ブロックごとに列フォーマットを明示的に設定しておく
+            # 授業数列(start_col) は枠色を付け、率列はパーセント書式を適用する
+            for i in range(len(week_period_labels)):
+                start_col = 4 + i * 6
+                if start_col > max_col:
+                    break
+                # 授業数列
+                try:
+                    worksheet.set_column(start_col, start_col, 9, fmt_khaki)
+                except Exception:
+                    pass
+                # ラップ率とテスト率の列 (offset 3,5)
+                try:
+                    if start_col + 3 <= max_col:
+                        worksheet.set_column(start_col + 3, start_col + 3, 9, fmt_white_pct)
+                    if start_col + 5 <= max_col:
+                        worksheet.set_column(start_col + 5, start_col + 5, 9, fmt_white_pct)
+                except Exception:
+                    pass
 
             for i, period_str in enumerate(week_period_labels):
                 start_col = 4 + i * 6
