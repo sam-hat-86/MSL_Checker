@@ -78,7 +78,6 @@ def build_command(
         "nuitka",
         "--onefile",
         "--lto=yes",
-        "--remove-docstrings",
         "--follow-imports",
         "--enable-plugin=tk-inter",
         "--windows-console-mode=disable",
