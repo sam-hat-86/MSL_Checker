@@ -9,16 +9,13 @@ from typing import Any, cast
 import re
 import unicodedata
 import importlib
-import multiprocessing as mp
-import concurrent.futures
 import pandas as pd
 import sys
 import ctypes
 import tkinter.font as tkfont
 import traceback
 import time
-import math
-import unicodedata
+
 
 
 def enable_windows_dpi_awareness() -> None:
@@ -34,7 +31,6 @@ def enable_windows_dpi_awareness() -> None:
 
 
 # 進捗表示などの共通ヘルパーは可能なら v4 から再利用する
-import importlib
 
 # Try to import helpers from v4; if missing, provide concrete fallbacks
 _v4 = None
