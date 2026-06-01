@@ -821,7 +821,6 @@ def format_excel_fast(
             sheet_title: str,
             summary_text: str | None = None,
         ):
-            progress(f"{sheet_title} の書き込みを開始します...")
             # Polarsベースで列を直接取り出して書き出す（pandas変換回避）
             headers = list(sheet_df.columns)
             max_col = len(headers) - 1
@@ -1054,13 +1053,11 @@ def format_excel_fast(
                 )
 
             worksheet.freeze_panes(data_start, 3)
-            progress(f"{sheet_title} の書き込みが完了しました。")
+            progress(f"完了：{sheet_title}")
 
         # シート書き出し（writer 経由）
         write_sheet(writer, all_pivot_df, week_period_labels_all, "全集計")
         write_sheet(writer, excluded_pivot_df, week_period_labels_excl, "除外集計")
-
-        # 全教室サマリは後で結合して一度だけ書き出す（重複書き込みを避ける）
 
     def write_simple_sheet(
         worksheet, summary_df: pl.DataFrame, sheet_title: str, date_title: str
@@ -1155,7 +1152,6 @@ def format_excel_fast(
         if classroom_df.height == 0:
             continue
 
-        progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
         summary_row = None
         try:
             if classroom_value is None:
@@ -1179,8 +1175,6 @@ def format_excel_fast(
 
             # クラス別シートは書式付きの通常シートとして出力
         write_sheet(writer, classroom_df, week_period_labels_all, sheet_label, top_summary)
-        progress("Excelファイルの保存が完了しました！")
-
 
 def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> None:
     dlg = tk.Toplevel(parent) if parent else tk.Toplevel()
@@ -1287,10 +1281,18 @@ def main():
         )
 
         total_elapsed = time.perf_counter() - total_start_time
+        processed_classroom_count = classroom_summary_df.height
+        processed_lesson_count = 0
+        try:
+            processed_lesson_count = int(classroom_summary_df.get_column("授業数").sum())
+        except Exception:
+            processed_lesson_count = 0
 
         result_msg = (
             f"処理が完了しました！\n"
             f"実行時間: {total_elapsed:.2f}秒\n\n"
+            f"処理教室数: {processed_classroom_count}教室\n"
+            f"授業数: {processed_lesson_count}件\n\n"
             f"出力先:\n{output_file}"
         )
 
@@ -1298,7 +1300,10 @@ def main():
         messagebox.showinfo("集計完了", result_msg, parent=root)
         root.attributes("-topmost", False)
 
-        print(f"すべての処理が完了しました！ (実行時間: {total_elapsed:.2f}秒)")
+        print(
+            f"処理完了(実行時間: {total_elapsed:.2f}秒, "
+            f"処理教室数: {processed_classroom_count}教室, 授業数: {processed_lesson_count}件)"
+        )
 
     except KeyboardInterrupt:
         print("処理を中断しました。")
