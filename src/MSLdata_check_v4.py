@@ -9,14 +9,13 @@ from typing import Any, cast
 import re
 import unicodedata
 import importlib
-import multiprocessing as mp
 import sys
 import ctypes
 import tkinter.font as tkfont
 import traceback
 import time
 import math
-import unicodedata
+
 
 
 # 画面をきれいに表示する
@@ -78,11 +77,6 @@ EXCLUDED_HW_TERMS: list[str] = [
 ]
 
 MAX_HW_PAGES = 30
-
-# ベンチ結果に基づく正規化並列化の推奨デフォルト値
-# ユーザーは環境変数で上書き可能（NORMALIZE_WORKERS, NORMALIZE_CHUNKSIZE）。
-DEFAULT_NORMALIZE_WORKERS = 6
-DEFAULT_NORMALIZE_CHUNKSIZE = 100
 
 
 def normalize_text_for_matching(s: object) -> str:
@@ -390,7 +384,7 @@ def process_attendance_data(
     # ----------------------------
     # 宿題名列の一括正規化（外部ライブラリ許可済み）
     # - 各 "宿題名" 列について正規化された新しい列 "<元名>__norm" を追加する
-    # - 正規化は Python レベルで一括処理してから DataFrame に戻す（Polars の UDF より高速な場合が多い）
+    # - 正規化は Python レベルで一括処理してから DataFrame に戻す
     hw_name_cols = [c for c in cols if c and "宿題名" in c]
     if hw_name_cols:
         norm_series_list = []
@@ -400,32 +394,8 @@ def process_attendance_data(
             except Exception:
                 orig_vals = []
 
-            # 並列化して正規化を実行（ワーカーは CPU-1 をデフォルト）
-            try:
-                # ワーカー数 / チャンクサイズは環境変数でオーバーライド可能
-                # NORMALIZE_WORKERS: 正の整数でワーカー数（0 または未指定で自動設定）
-                # NORMALIZE_CHUNKSIZE: 正の整数で chunksize（0 または未指定で自動計算）
-                env_workers = os.environ.get("NORMALIZE_WORKERS")
-                env_chunks = os.environ.get("NORMALIZE_CHUNKSIZE")
-
-                if env_workers and env_workers.isdigit():
-                    cpu = max(1, int(env_workers))
-                else:
-                    cpu = max(1, DEFAULT_NORMALIZE_WORKERS)
-
-                if env_chunks and env_chunks.isdigit():
-                    chunksize = max(1, int(env_chunks))
-                else:
-                    # デフォルトはベンチで得られた固定チャンクサイズ
-                    chunksize = max(1, DEFAULT_NORMALIZE_CHUNKSIZE)
-
-                with mp.Pool(processes=cpu) as pool:
-                    norm_vals = pool.map(
-                        normalize_text_for_matching, orig_vals, chunksize
-                    )
-            except Exception:
-                # フォールバック: シリアル処理
-                norm_vals = [normalize_text_for_matching(v) for v in orig_vals]
+            # 並列化は行わず、順次正規化する
+            norm_vals = [normalize_text_for_matching(v) for v in orig_vals]
 
             norm_col_name = f"{c}__norm"
             norm_series_list.append(pl.Series(norm_col_name, norm_vals))
