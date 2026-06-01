@@ -11,14 +11,14 @@ from pathlib import Path
 
 APP_NAME_BASE = "MSL集計ソフト"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
-DEFAULT_VERSION = "5"
+DEFAULT_VERSION = "6"
 ICON_NAME = "logo.ico"
 BUILD_REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements-build.txt"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MSL Checker を Nuitka でビルドします。")
-    parser.add_argument("-v", "--version", help="使用するバージョン番号 (1-5)")
+    parser.add_argument("-v", "--version", help="使用するバージョン番号 (1-6)")
     parser.add_argument(
         "--jobs",
         type=int,
@@ -86,6 +86,7 @@ def build_command(
         "--assume-yes-for-downloads",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
+        "--enable-plugin=upx",
         "--remove-output",
         "--no-deployment-flag=self-execution",
         "--nofollow-import-to=unittest",
@@ -159,6 +160,7 @@ def main() -> int:
     print("LTO: 有効（実行時性能を最優先にしています）")
     command = build_command(project_root, script_path, exe_name, args.jobs)
 
+    print("UPX: 有効（実行ファイル圧縮を行います）")
     # 簡素化: --follow-imports を使用して Nuitka に依存解決させます。
     # 手動除外ロジックは廃止しました（依存は自動で辿られ、バイナリに含まれます）。
     print("--follow-imports を有効化: 依存を自動で辿ります（バイナリサイズが増加する可能性があります）")
