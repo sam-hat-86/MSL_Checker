@@ -394,16 +394,10 @@ def process_attendance_data(input_file: str) -> tuple[pl.DataFrame, pl.DataFrame
     df_pivot_all, week_periods_all = aggregate_and_pivot(df_metrics)
 
     # 除外条件: 教室に高3/高３/高卒 を含む、または 科目欄(もしあれば)が国語 を含む行を除外
-    subj_col = None
-    for c in cols:
-        if c in ("科目", "教科"):
-            subj_col = c
-            break
+    cond_grade = pl.col("学年").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
+    cond_subj = (pl.col("科目").cast(pl.Utf8).str.contains(r"国語").fill_null(False))
 
-    cond_class = pl.col("教室").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
-    cond_subj = (pl.col(subj_col).cast(pl.Utf8).str.contains(r"国語").fill_null(False)) if subj_col else pl.lit(False)
-
-    df_metrics_excl = df_metrics.filter(~cond_class & ~cond_subj)
+    df_metrics_excl = df_metrics.filter(~cond_grade & ~cond_subj)
 
     df_pivot_excl, week_periods_excl = aggregate_and_pivot(df_metrics_excl)
 
@@ -702,7 +696,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
 
     # 列表示順: 教室, 授業数, 講師数, 宿題平均, ラップ率, テスト率, （除外版）...
     preferred = ["教室", "授業数", "講師数", "宿題平均", "ラップ率", "テスト率",
-                 "授業数_除外", "講師数_除外", "宿題平均_除外", "ラップ率_除外", "テスト率_除外"]
+                        "授業数_除外", "講師数_除外", "宿題平均_除外", "ラップ率_除外", "テスト率_除外"]
     cols_to_show = [c for c in preferred if c in merged.columns]
     if "教室" not in cols_to_show:
         cols_to_show = merged.columns

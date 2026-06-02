@@ -707,29 +707,16 @@ def process_attendance_data(
     # フル集計
     pivot_df_all, week_period_labels_all = aggregate_and_pivot(attendance_metrics_df)
 
-    # 除外条件: 教室に高3/高３/高卒 を含む、または 科目欄(もしあれば)が国語 を含む行を除外
-    subject_column_name = None
-    for c in cols:
-        if c in ("科目", "教科"):
-            subject_column_name = c
-            break
-
-    classroom_exclusion_condition = (
-        pl.col("教室").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
+    # 除外条件: 学年に高3/高３/高卒 を含む、または 科目欄(もしあれば)が国語 を含む行を除外
+    grade_exclusion_condition = (
+        pl.col("学年").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
     )
     subject_exclusion_condition = (
-        (
-            pl.col(subject_column_name)
-            .cast(pl.Utf8)
-            .str.contains(r"国語")
-            .fill_null(False)
-        )
-        if subject_column_name
-        else pl.lit(False)
+        pl.col("科目").cast(pl.Utf8).str.contains(r"(国語)").fill_null(False)
     )
 
     excluded_metrics_df = attendance_metrics_df.filter(
-        ~classroom_exclusion_condition & ~subject_exclusion_condition
+        ~grade_exclusion_condition & ~subject_exclusion_condition
     )
 
     excluded_pivot_df, week_period_labels_excl = aggregate_and_pivot(
