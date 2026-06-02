@@ -25,24 +25,19 @@ def progress(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"[{ts}] {msg}")
 
+#除外ワードのリスト。これらを含む宿題はページ数カウントから除外する。
+#カタカナ漢字のみ
 EXCLUDED_HW_TERMS = [
-    "たんご",
+    "タンゴ",
     "単語",
-    "しすたん",
     "シスタン",
     "シス単",
-    "たーげっと",
     "ターゲット",
-    "りーぷ",
     "リープ",
-    "Leap",
-    "LEAP",
-    "げっとするー",
+    "leap",
     "ゲットスルー",
-    "ぱすたん",
-    "ぱす単",
+    "パスタン",
     "パス単",
-    "まどんな",
     "マドンナ",
 ]
 
@@ -52,21 +47,13 @@ DEFAULT_NORMALIZE_CHUNKSIZE = 100
 # フォント優先リスト（環境に応じて先頭から利用可否を判定）
 FONT_PREFERRED = [
     "Noto Sans JP",
-    "Yu Gothic",
-    "Meiryo",
-    "Meiryo UI",
-    "MS UI Gothic",
-    "MS Gothic",
     "Arial Unicode MS",
     "Arial",
 ]
 
 
 def select_font(preferred: list[str] | None = None) -> str:
-    """インストール済みフォントから優先リストの先頭を返す。見つからなければ 'Calibri' を返す。
-
-    Tk が利用できない（ヘッドレス）環境でも安全に動作するよう例外を捕捉する。
-    """
+    # インストール済みフォントから優先リストの先頭を返す。見つからなければ 'Calibri' を返す。
     prefs = preferred or FONT_PREFERRED
     try:
         # tkinter のフォント一覧を一時的に取得
@@ -89,10 +76,11 @@ def select_font(preferred: list[str] | None = None) -> str:
 def normalize_text_for_matching(s: object) -> str:
     if s is None:
         return ""
-    t = str(s)
-    t = unicodedata.normalize("NFKC", t)
-    t = t.lower()
-    t = re.sub(r"\s+", "", t)
+    t = str(s) #文字列化
+    t = unicodedata.normalize("NFKC", t) #全半角統一
+    t = t.lower() #小文字化
+    t = re.sub(r"\s+", "", t) #空白文字の削除
+    t = "".join(chr(ord(c) + 96) if "ぁ" <= c <= "ん" else c for c in t) # ひらがなをカタカナに変換
     return t
 
 def parallel_normalize(values, workers: int = 1, chunksize: int = 100):
@@ -185,7 +173,7 @@ else:
         has_test_expr = (lap_expr | kaku_expr).fill_null(False).alias("has_test")
         return has_lap_expr, has_kaku_expr, has_test_expr
 
-# will prefer v4 implementation after local definition if available
+# v4があれば、build_hw_pages_expr と build_test_presence_exprs を優先して使用する（オーバーライド）
 
 if _v4 is not None and hasattr(_v4, "configure_tk_scaling"):
     configure_tk_scaling = _v4.configure_tk_scaling
