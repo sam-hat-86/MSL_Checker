@@ -247,7 +247,7 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
         return df_data
 
     except Exception as e:
-        progress(f"高速エンジンでの読み込み失敗。通常モードに切り替えます: {e}")
+        progress(f"読み込みを通常モードに切り替えます: {e}")
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         try:
             ws = wb.worksheets[sheet_index - 1]
@@ -553,7 +553,7 @@ def process_attendance_data(
             ],
         )
 
-        progress("希望の列順への並び替えとソート処理中...")
+        progress("並び替えとソートの処理中...")
         week_numbers_local = sorted(
             list(set([c.split("_")[-1] for c in pivot_df_local.columns if "_" in c]))
         )
@@ -1267,7 +1267,8 @@ def main():
         input_file = filedialog.askopenfilename(
             title="集計元のExcelファイルを選択してください",
             filetypes=[
-                ("Excelファイル", "*.xlsx *.xls *.xlsm"),
+                ("MSL出力ファイル", "scube2*.xlsx"),
+                ("Excelファイル", "*.xlsx"),
                 ("すべてのファイル", "*.*"),
             ],
             parent=root,
