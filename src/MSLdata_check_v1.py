@@ -439,7 +439,7 @@ def format_excel_fast(df: pl.DataFrame, output_file: str, date_range_str: str, s
                 else:
                     worksheet.write(row_num, col_num, cell_value, base_fmt)
                 continue
-            
+
             # D列（総授業数）
             if col_num == 3:
                 if cell_value is None or (isinstance(cell_value, float) and math.isnan(cell_value)):
