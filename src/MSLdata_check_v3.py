@@ -500,7 +500,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
     # シートごとに書き込む関数。
     # ヘッダーの書式設定、データの書式設定、カスタムオートフィットを行う。
     def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str], sheet_label: str, top_summary: str | None = None):
-        progress(f"{sheet_label} の書き込みを開始します...")
+        #＃progress(f"{sheet_label} の書き込みを開始します...")
         headers = df.columns
         max_col = len(headers) - 1
         data_rows = df.rows()
@@ -532,8 +532,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
         # 3. data_start 行からデータ書き込み ＆ A〜C列の幅を計算
         for ri, row_data in enumerate(data_rows, start=0):
             row_num = data_start + ri
-            if ri == 0 or (ri + 1) % 1000 == 0:
-                progress(f"{sheet_label}: {ri + 1}/{len(data_rows)} 行を書き込み中...")
+            ##if ri == 0 or (ri + 1) % 1000 == 0:
+            ##    progress(f"{sheet_label}: {ri + 1}/{len(data_rows)} 行を書き込み中...")
 
             is_even_excel_row = ((row_num + 1) % 2 == 0)
 
@@ -729,7 +729,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, df_classroom_
         if classroom_df.height == 0:
             continue
 
-        progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
+        ##progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
+        progress(f"教室シート作成:{sheet_label}")
         ws_classroom = workbook.add_worksheet(sheet_label)
         # 教室の集計値を取得してトップに表示する文字列を作る
         summary_row = None

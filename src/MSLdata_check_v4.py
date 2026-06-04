@@ -887,7 +887,7 @@ def format_excel_fast(
         sheet_title: str,
         summary_text: str | None = None,
     ):
-        progress(f"{sheet_title} の書き込みを開始します...")
+        ## progress(f"{sheet_title} の書き込みを開始します...")
         # 出力に使うヘッダーとデータ行ジェネレータを取得
         headers = sheet_df.columns
         max_col = len(headers) - 1
@@ -925,8 +925,8 @@ def format_excel_fast(
         for ri, row_data in enumerate(data_rows, start=0):
             row_num = data_start + ri
             # 進捗ログ: 最初の行と区切り毎に報告
-            if ri == 0 or (ri + 1) % 1000 == 0:
-                progress(f"{sheet_title}: {ri + 1}/{len(data_rows)} 行を書き込み中...")
+            ##if ri == 0 or (ri + 1) % 1000 == 0:
+                ## progress(f"{sheet_title}: {ri + 1}/{len(data_rows)} 行を書き込み中...")
 
             # Excel 偶数行かどうか（行の背景色決定に使用）
             is_even_excel_row = (row_num + 1) % 2 == 0
@@ -1209,7 +1209,8 @@ def format_excel_fast(
         if classroom_df.height == 0:
             continue
 
-        progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
+        ## progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
+        progress(f"教室シート作成:{sheet_label}")
         ws_classroom = workbook.add_worksheet(sheet_label)
         # 教室の集計値を取得してトップに表示する文字列を作る
         summary_row = None

@@ -429,7 +429,7 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
     fmt_cond_firebrick = workbook.add_format({'font_name': ud_font, 'bg_color': '#B22222', 'font_color': '#FFFFFF'})
 
     def write_sheet(worksheet, df: pl.DataFrame, week_periods: list[str], sheet_label: str):
-        progress(f"{sheet_label} の書き込みを開始します...")
+        ##progress(f"{sheet_label} の書き込みを開始します...")
         headers = df.columns
         max_col = len(headers) - 1
         data_rows = df.rows()
@@ -446,8 +446,8 @@ def format_excel_fast(df_all: pl.DataFrame, df_excl: pl.DataFrame, output_file: 
 
         # 2. 3行目（Row 2）からデータ書き込み ＆ A〜C列の幅を計算
         for row_num, row_data in enumerate(data_rows, start=2):
-            if row_num == 2 or row_num % 1000 == 0:
-                progress(f"{sheet_label}: {row_num - 1}/{len(data_rows)} 行を書き込み中...")
+            ##if row_num == 2 or row_num % 1000 == 0:
+            ##    progress(f"{sheet_label}: {row_num - 1}/{len(data_rows)} 行を書き込み中...")
 
             is_even_excel_row = ((row_num + 1) % 2 == 0)
 
