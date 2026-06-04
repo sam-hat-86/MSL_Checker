@@ -3,30 +3,28 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import xlsxwriter
 import openpyxl
+from openpyxl.worksheet.pagebreak import ColBreak
 import os
 from datetime import datetime
 from typing import Any, cast
 import re
 import unicodedata
-import importlib
 import pandas as pd
 import sys
 import ctypes
 import tkinter.font as tkfont
 import traceback
 import time
-import math
+import gc
 
-
-# Minimal compatibility shim for v4 fallback and progress
-_v4 = None
 
 def progress(msg: str) -> None:
+    # 処理状況を分かりやすく把握するためのタイムスタンプ付き進捗出力
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"[{ts}] {msg}")
 
-#除外ワードのリスト。これらを含む宿題はページ数カウントから除外する。
-#カタカナ漢字のみ
+# 除外ワードのリスト。これらを含む宿題はページ数カウントから除外する。
+#カタカナ,漢字,小文字
 EXCLUDED_HW_TERMS = [
     "タンゴ",
     "単語",
@@ -41,9 +39,6 @@ EXCLUDED_HW_TERMS = [
     "マドンナ",
 ]
 
-DEFAULT_NORMALIZE_WORKERS = 6
-DEFAULT_NORMALIZE_CHUNKSIZE = 100
-
 # フォント優先リスト（環境に応じて先頭から利用可否を判定）
 FONT_PREFERRED = [
     "Noto Sans JP",
@@ -53,10 +48,8 @@ FONT_PREFERRED = [
 
 
 def select_font(preferred: list[str] | None = None) -> str:
-    # インストール済みフォントから優先リストの先頭を返す。見つからなければ 'Calibri' を返す。
     prefs = preferred or FONT_PREFERRED
     try:
-        # tkinter のフォント一覧を一時的に取得
         root_tmp = tk.Tk()
         root_tmp.withdraw()
         fams = set(tkfont.families())
@@ -65,10 +58,8 @@ def select_font(preferred: list[str] | None = None) -> str:
             if f in fams:
                 return f
     except Exception:
-        # ヘッドレス等で取得できない場合は次の選択肢へ
         pass
 
-    # 最後の砦として環境に依らない常用フォントを返す
     for f in prefs:
         return f
     return "Calibri"
@@ -76,16 +67,12 @@ def select_font(preferred: list[str] | None = None) -> str:
 def normalize_text_for_matching(s: object) -> str:
     if s is None:
         return ""
-    t = str(s) #文字列化
-    t = unicodedata.normalize("NFKC", t) #全半角統一
-    t = t.lower() #小文字化
-    t = re.sub(r"\s+", "", t) #空白文字の削除
-    t = "".join(chr(ord(c) + 96) if "ぁ" <= c <= "ん" else c for c in t) # ひらがなをカタカナに変換
+    t = str(s)
+    t = unicodedata.normalize("NFKC", t)
+    t = t.lower()
+    t = re.sub(r"\s+", "", t)
+    t = "".join(chr(ord(c) + 96) if "ぁ" <= c <= "ん" else c for c in t)  # ひらがなをカタカナに一元化
     return t
-
-def parallel_normalize(values, workers: int = 1, chunksize: int = 100):
-    return [normalize_text_for_matching(v) for v in values]
-
 
 
 def enable_windows_dpi_awareness() -> None:
@@ -99,96 +86,84 @@ def enable_windows_dpi_awareness() -> None:
         except Exception:
             pass
 
-if _v4 is not None and hasattr(_v4, "build_hw_pages_expr"):
-    build_hw_pages_expr = _v4.build_hw_pages_expr
-else:
-    def build_hw_pages_expr(
-        hw_name_column: str,
-        hw_start_column: str,
-        hw_end_column: str,
-        excluded_terms: list[str],
-        page_limit: int = 30,
-    ) -> pl.Expr:
-        # 名前列を文字列として正規化（NULL->""）
-        hw_name_expr = pl.col(hw_name_column).cast(pl.Utf8).fill_null("").str.strip_chars()
 
-        active_excluded_hw_terms = [term for term in excluded_terms if str(term).strip()]
+def build_hw_pages_expr(
+    hw_name_column: str,
+    hw_start_column: str,
+    hw_end_column: str,
+    excluded_terms: list[str],
+    page_limit: int = 30,
+) -> pl.Expr:
+    hw_name_expr = pl.col(hw_name_column).cast(pl.Utf8).fill_null("").str.strip_chars()
+    active_excluded_hw_terms = [term for term in excluded_terms if str(term).strip()]
 
-        is_excluded_hw_expr = (
-            pl.any_horizontal(
-                [hw_name_expr.str.contains(term, literal=True) for term in active_excluded_hw_terms]
-            )
-            if active_excluded_hw_terms
+    is_excluded_hw_expr = (
+        pl.any_horizontal(
+            [hw_name_expr.str.contains(term, literal=True) for term in active_excluded_hw_terms]
+        )
+        if active_excluded_hw_terms
+        else pl.lit(False)
+    )
+
+    hw_start_page_expr = (
+        pl.col(hw_start_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
+    )
+    hw_end_page_expr = (
+        pl.col(hw_end_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
+    )
+
+    hw_page_count_expr = hw_end_page_expr - hw_start_page_expr + 1
+
+    capped_hw_page_count_expr = (
+        pl.when(hw_page_count_expr.is_null())
+        .then(0)
+        .when(hw_page_count_expr < 0)
+        .then(0)
+        .when(hw_page_count_expr > page_limit)
+        .then(page_limit)
+        .otherwise(hw_page_count_expr)
+    )
+
+    return (
+        pl.when(hw_name_expr != "")
+        .then(pl.when(~is_excluded_hw_expr).then(capped_hw_page_count_expr).otherwise(0))
+        .otherwise(0)
+    )
+
+
+def build_test_presence_exprs(
+    lap_column_names: list[str], kaku_column_names: list[str]
+) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
+    def _presence_expr(column_names: list[str]) -> pl.Expr:
+        presence_checks = [
+            pl.col(column_name).is_not_null()
+            & (pl.col(column_name).cast(pl.Utf8).str.strip_chars() != "")
+            for column_name in column_names
+        ]
+        return (
+            pl.any_horizontal(presence_checks).fill_null(False)
+            if presence_checks
             else pl.lit(False)
         )
 
-        hw_start_page_expr = (
-            pl.col(hw_start_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
-        )
-        hw_end_page_expr = (
-            pl.col(hw_end_column).cast(pl.Utf8).str.extract(r"(\d+)").cast(pl.Int64, strict=False)
-        )
+    lap_expr = _presence_expr(lap_column_names)
+    kaku_expr = _presence_expr(kaku_column_names)
+    has_lap_expr = lap_expr.alias("has_lap")
+    has_kaku_expr = kaku_expr.alias("has_kaku")
+    has_test_expr = (lap_expr | kaku_expr).fill_null(False).alias("has_test")
+    return has_lap_expr, has_kaku_expr, has_test_expr
 
-        hw_page_count_expr = hw_end_page_expr - hw_start_page_expr + 1
 
-        capped_hw_page_count_expr = (
-            pl.when(hw_page_count_expr.is_null())
-            .then(0)
-            .when(hw_page_count_expr < 0)
-            .then(0)
-            .when(hw_page_count_expr > page_limit)
-            .then(page_limit)
-            .otherwise(hw_page_count_expr)
-        )
-
-        return (
-            pl.when(hw_name_expr != "")
-            .then(pl.when(~is_excluded_hw_expr).then(capped_hw_page_count_expr).otherwise(0))
-            .otherwise(0)
-        )
-
-if _v4 is not None and hasattr(_v4, "build_test_presence_exprs"):
-    build_test_presence_exprs = _v4.build_test_presence_exprs
-else:
-    def build_test_presence_exprs(
-        lap_column_names: list[str], kaku_column_names: list[str]
-    ) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
-        def _presence_expr(column_names: list[str]) -> pl.Expr:
-            presence_checks = [
-                pl.col(column_name).is_not_null()
-                & (pl.col(column_name).cast(pl.Utf8).str.strip_chars() != "")
-                for column_name in column_names
-            ]
-
-            return (
-                pl.any_horizontal(presence_checks).fill_null(False)
-                if presence_checks
-                else pl.lit(False)
-            )
-
-        lap_expr = _presence_expr(lap_column_names)
-        kaku_expr = _presence_expr(kaku_column_names)
-        has_lap_expr = lap_expr.alias("has_lap")
-        has_kaku_expr = kaku_expr.alias("has_kaku")
-        has_test_expr = (lap_expr | kaku_expr).fill_null(False).alias("has_test")
-        return has_lap_expr, has_kaku_expr, has_test_expr
-
-# v4があれば、build_hw_pages_expr と build_test_presence_exprs を優先して使用する（オーバーライド）
-
-if _v4 is not None and hasattr(_v4, "configure_tk_scaling"):
-    configure_tk_scaling = _v4.configure_tk_scaling
-else:
-    def configure_tk_scaling(root: tk.Tk) -> None:
-        try:
-            scale = float(root.tk.call("tk", "scaling"))
-            root.tk.call("tk", "scaling", scale)
-        except Exception:
-            pass
+def configure_tk_scaling(root: tk.Tk) -> None:
+    try:
+        scale = float(root.tk.call("tk", "scaling"))
+        root.tk.call("tk", "scaling", scale)
+    except Exception:
+        pass
 
 def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.DataFrame:
     try:
         import fastexcel
-
         excel_reader = fastexcel.read_excel(path)
         sheet = excel_reader.load_sheet(sheet_index - 1, header_row=None)
         df_raw = sheet.to_polars()
@@ -196,10 +171,7 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
         if df_raw.height == 0:
             return pl.DataFrame()
 
-        progress(
-            "fastexcelエンジンによる読み込み完了。Polarsネイティブでヘッダー処理を開始します。"
-        )
-
+        progress("fastexcel読み込みモード")
         header = [str(x) if x is not None else "" for x in df_raw.row(0)]
 
         hw_base_idx = -1
@@ -242,12 +214,10 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
 
         df_data = df_raw.slice(1)
         df_data = df_data.rename(dict(zip(df_data.columns, unique_headers)))
-
-        progress(f"データ構築完了: 行数={df_data.height}, 列数={df_data.width}")
         return df_data
 
     except Exception as e:
-        progress(f"読み込みを通常モードに切り替えます: {e}")
+        progress(f"openpyxl読み込みモード: {e}")
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         try:
             ws = wb.worksheets[sheet_index - 1]
@@ -280,45 +250,34 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
 
         header_len = len(header)
         padded_rows = [
-            (
-                tuple(row) + (None,) * (header_len - len(row))
-                if len(row) < header_len
-                else tuple(row)
-            )
+            (tuple(row) + (None,) * (header_len - len(row)) if len(row) < header_len else tuple(row))
             for row in rows[1:]
         ]
-
-        df = pl.DataFrame(padded_rows, schema=header, orient="row")
-        return df
+        return pl.DataFrame(padded_rows, schema=header, orient="row")
 
 
 def get_jp_weekday(dt_obj):
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     return weekdays[dt_obj.weekday()]
 
-# If v4 provides a specialized implementation, prefer it (override local def)
-if _v4 is not None and hasattr(_v4, "get_jp_weekday"):
-    get_jp_weekday = _v4.get_jp_weekday
-
 
 def process_attendance_data(
     input_file: str,
-) -> tuple[
-    pl.DataFrame,
-    pl.DataFrame,
-    pl.DataFrame,
-    pl.DataFrame,
-    str,
-    str,
-    str,
-    list[str],
-    list[str],
-]:
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str]]:
+    progress("出欠データの解析開始")
     df = load_sheet_preserve_extra_columns(input_file, sheet_index=1)
     cols = df.columns
 
+    # 教室データ取得時に教室名列から「ＦＳ」「FS」を完全除去
+    if "教室" in cols:
+        progress("教室名から'FS'の除去")
+        df = df.with_columns(
+            pl.col("教室").cast(pl.Utf8).str.replace_all(r"(ＦＳ|FS|ｆｓ|fs)", "").str.strip_chars().alias("教室")
+        )
+
     hw_name_cols = [c for c in cols if c and "宿題名" in c]
     if hw_name_cols:
+        progress(f"宿題名列(計{len(hw_name_cols)}列)の正規化を実行")
         norm_series_list = []
         for c in hw_name_cols:
             try:
@@ -326,24 +285,7 @@ def process_attendance_data(
             except Exception:
                 orig_vals = []
 
-            try:
-                env_workers = os.environ.get("NORMALIZE_WORKERS")
-                env_chunks = os.environ.get("NORMALIZE_CHUNKSIZE")
-
-                if env_workers and env_workers.isdigit():
-                    cpu = max(1, int(env_workers))
-                else:
-                    cpu = max(1, DEFAULT_NORMALIZE_WORKERS)
-
-                if env_chunks and env_chunks.isdigit():
-                    chunksize = max(1, int(env_chunks))
-                else:
-                    chunksize = max(1, DEFAULT_NORMALIZE_CHUNKSIZE)
-
-                norm_vals = parallel_normalize(orig_vals, workers=cpu, chunksize=chunksize)
-            except Exception:
-                norm_vals = [normalize_text_for_matching(v) for v in orig_vals]
-
+            norm_vals = [normalize_text_for_matching(v) for v in orig_vals]
             norm_col_name = f"{c}__norm"
             norm_series_list.append(pl.Series(norm_col_name, norm_vals))
         if norm_series_list:
@@ -357,24 +299,18 @@ def process_attendance_data(
             date_col = dc
             break
 
-    progress("日付情報からファイル名・シート名を生成中...")
     if date_col is not None:
-        valid_dates = df.select(
-            pl.col(date_col).cast(pl.Date, strict=False)
-        ).drop_nulls()
+        valid_dates = df.select(pl.col(date_col).cast(pl.Date, strict=False)).drop_nulls()
     else:
         valid_dates = pl.DataFrame()
 
     if valid_dates.height > 0:
         min_dt = valid_dates.min().item()
         max_dt = valid_dates.max().item()
-
         wd_min = get_jp_weekday(min_dt)
         wd_max = get_jp_weekday(max_dt)
-
         min_date_file = min_dt.strftime("%Y%m%d")
         max_date_file = max_dt.strftime("%Y%m%d")
-
         date_range_str = f"集計期間: {min_dt.strftime('%Y/%m/%d')}({wd_min}) ～ {max_dt.strftime('%Y/%m/%d')}({wd_max})"
     else:
         min_date_file, max_date_file = "不明", "不明"
@@ -386,12 +322,7 @@ def process_attendance_data(
     output_filename = f"集計結果_[{min_date_file}-{max_date_file}]_{now_str}.xlsx"
     output_file = os.path.join(input_dir, output_filename)
 
-    progress("列インデックスの特定中...")
-    if date_col is not None:
-        dt_expr = pl.col(date_col).cast(pl.Date, strict=False).dt
-        dt_iso = cast(Any, dt_expr).week()
-    else:
-        dt_iso = pl.lit(None)
+    dt_iso = pl.col(date_col).cast(pl.Date, strict=False).dt.week() if date_col is not None else pl.lit(None)
 
     lap_section_start_index = 0
     for i, c in enumerate(cols):
@@ -405,17 +336,9 @@ def process_attendance_data(
             hw_section_start_index = i
             break
 
-    progress(
-        f"インデックス特定完了: ラップ開始={lap_section_start_index}, 宿題開始={hw_section_start_index}"
-    )
-
     test_section_column_names = cols[lap_section_start_index:hw_section_start_index]
-    lap_count_column_names = [
-        c for c in test_section_column_names if "ラップ" in c and "（分子）" in c
-    ]
-    confirmation_count_column_names = [
-        c for c in test_section_column_names if "確認" in c and "（分子）" in c
-    ]
+    lap_count_column_names = [c for c in test_section_column_names if "ラップ" in c and "（分子）" in c]
+    confirmation_count_column_names = [c for c in test_section_column_names if "確認" in c and "（分子）" in c]
 
     hw_page_exprs = []
     for i in range(hw_section_start_index, len(cols), 3):
@@ -423,94 +346,41 @@ def process_attendance_data(
             hw_name_col = cols[i]
             hw_start_col = cols[i + 1]
             hw_end_col = cols[i + 2]
-
             norm_col = f"{hw_name_col}__norm"
             hw_name_for_expr = norm_col if norm_col in cols else hw_name_col
+            hw_page_exprs.append(build_hw_pages_expr(hw_name_for_expr, hw_start_col, hw_end_col, EXCLUDED_HW_TERMS))
 
-            hw_page_exprs.append(
-                build_hw_pages_expr(
-                    hw_name_for_expr,
-                    hw_start_col,
-                    hw_end_col,
-                    EXCLUDED_HW_TERMS,
-                )
-            )
-
-    progress("データのクレンジングと指標の計算中...")
-
-    missing_required_columns = []
-    for req_col in ["出欠", "担当講師名", "担当講師N0", "教室"]:
-        if req_col not in cols:
-            missing_required_columns.append(req_col)
-
+    missing_required_columns = [req_col for req_col in ["出欠", "担当講師名", "担当講師N0", "教室"] if req_col not in cols]
     if missing_required_columns:
-        raise ValueError(
-            f"必須の列が見つかりません: {', '.join(missing_required_columns)}"
-        )
+        raise ValueError(f"必須の列が見つかりません: {', '.join(missing_required_columns)}")
 
+    progress("出席データの抽出および宿題・テスト集計ロジックを構築中")
     attendance_metrics_df = (
         df.filter(pl.col("出欠") == "出席").with_columns(
-            pl.col("担当講師名")
-            .cast(pl.Utf8)
-            .str.replace_all(r"[Ａ-Ｚ_]", "")
-            .alias("担当講師名"),
-            dt_iso.alias("week_num"),
-            (
-                pl.col(date_col).cast(pl.Date, strict=False)
-                if date_col
-                else pl.lit(None)
-            ).alias("date_val"),
-            (pl.sum_horizontal(hw_page_exprs) if hw_page_exprs else pl.lit(0)).alias(
-                "hw_pages"
-            ),
+            pl.col("担当講師名").cast(pl.Utf8).str.replace_all(r"[Ａ-Ｚ_]", "").alias("担当講師名"),
+            dt_iso.cast(pl.Utf8).alias("week_num"),
+            (pl.col(date_col).cast(pl.Date, strict=False) if date_col else pl.lit(None)).alias("date_val"),
+            (pl.sum_horizontal(hw_page_exprs) if hw_page_exprs else pl.lit(0)).alias("hw_pages"),
         )
-        .with_columns(
-            *build_test_presence_exprs(
-                lap_count_column_names, confirmation_count_column_names
-            )
-        )
+        .with_columns(*build_test_presence_exprs(lap_count_column_names, confirmation_count_column_names))
     )
 
+    # 共通で使用する週次範囲ディクショナリをここで1回だけ特定（重複ループ処理の排除）
     week_period_by_week_number = {}
     if "date_val" in attendance_metrics_df.columns:
         week_ranges_df = (
             attendance_metrics_df.filter(pl.col("date_val").is_not_null())
             .group_by("week_num")
-            .agg(
-                pl.col("date_val").min().alias("min_dt"),
-                pl.col("date_val").max().alias("max_dt"),
-            )
+            .agg(pl.col("date_val").min().alias("min_dt"), pl.col("date_val").max().alias("max_dt"))
         )
         for row in week_ranges_df.iter_rows(named=True):
             w_num = row["week_num"]
             md = row["min_dt"]
             xd = row["max_dt"]
             if md and xd:
-                week_period_by_week_number[str(w_num)] = (
-                    f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
-                )
+                week_period_by_week_number[str(w_num)] = f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
 
     def aggregate_and_pivot(attendance_metrics_local_df: pl.DataFrame):
-        progress("週次集計中...")
-        week_period_by_week_number_local = {}
-        if "date_val" in attendance_metrics_local_df.columns:
-            week_ranges_df_local = (
-                attendance_metrics_local_df.filter(pl.col("date_val").is_not_null())
-                .group_by("week_num")
-                .agg(
-                    pl.col("date_val").min().alias("min_dt"),
-                    pl.col("date_val").max().alias("max_dt"),
-                )
-            )
-            for row in week_ranges_df_local.iter_rows(named=True):
-                w_num = row["week_num"]
-                md = row["min_dt"]
-                xd = row["max_dt"]
-                if md and xd:
-                    week_period_by_week_number_local[str(w_num)] = (
-                        f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
-                    )
-
         base_aggregate_df_local = attendance_metrics_local_df.group_by(
             ["担当講師N0", "担当講師名", "教室", "week_num"]
         ).agg(
@@ -524,195 +394,73 @@ def process_attendance_data(
             (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
             (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
             (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率"),
-        ).select(
-            [
-                "担当講師N0",
-                "担当講師名",
-                "教室",
-                "week_num",
-                "授業数",
-                "宿題平均",
-                "ラップ回数",
-                "ラップ率",
-                "テスト回数",
-                "テスト率",
-            ]
-        )
+        ).select(["担当講師N0", "担当講師名", "教室", "week_num", "授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"])
 
-        progress("横持ちへのピボット処理...")
         pivot_df_local = aggregated_df_local.pivot(
             on="week_num",
             index=["担当講師N0", "担当講師名", "教室"],
-            values=[
-                "授業数",
-                "宿題平均",
-                "ラップ回数",
-                "ラップ率",
-                "テスト回数",
-                "テスト率",
-            ],
+            values=["授業数", "宿題平均", "ラップ回数", "ラップ率", "テスト回数", "テスト率"],
         )
 
-        progress("並び替えとソートの処理中...")
-        week_numbers_local = sorted(
-            list(set([c.split("_")[-1] for c in pivot_df_local.columns if "_" in c]))
-        )
-
+        week_numbers_local = sorted(list(set([c.split("_")[-1] for c in pivot_df_local.columns if "_" in c])))
         class_count_columns_local = [f"授業数_{w}" for w in week_numbers_local]
-        total_class_expr_local = pl.sum_horizontal(
-            [
-                pl.col(c)
-                for c in class_count_columns_local
-                if c in pivot_df_local.columns
-            ]
-        ).fill_null(0)
-        pivot_df_local = pivot_df_local.with_columns(
-            total_class_expr_local.alias("総授業数")
-        )
-        # 各週ごとに列の扱いを v3/v4 と同等にする:
-        # - 授業数, ラップ回数, テスト回数 は欠損を0にする
-        # - 宿題平均、ラップ率、テスト率 は授業数が0の場合は欠損のまま（後で '-' として表示される）
+        total_class_expr_local = pl.sum_horizontal([pl.col(c) for c in class_count_columns_local if c in pivot_df_local.columns]).fill_null(0)
+        pivot_df_local = pivot_df_local.with_columns(total_class_expr_local.alias("総授業数"))
+
         for w in week_numbers_local:
-            c_class = f"授業数_{w}"
-            c_hw = f"宿題平均_{w}"
-            c_lap_cnt = f"ラップ回数_{w}"
-            c_lap_rate = f"ラップ率_{w}"
-            c_test_cnt = f"テスト回数_{w}"
-            c_test_rate = f"テスト率_{w}"
-
-            if c_class in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(pl.col(c_class).fill_null(0).alias(c_class))
-            if c_lap_cnt in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(pl.col(c_lap_cnt).fill_null(0).alias(c_lap_cnt))
-            if c_test_cnt in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(pl.col(c_test_cnt).fill_null(0).alias(c_test_cnt))
-
+            c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate = f"授業数_{w}", f"宿題平均_{w}", f"ラップ回数_{w}", f"ラップ率_{w}", f"テスト回数_{w}", f"テスト率_{w}"
+            if c_class in pivot_df_local.columns:     pivot_df_local = pivot_df_local.with_columns(pl.col(c_class).fill_null(0).alias(c_class))
+            if c_lap_cnt in pivot_df_local.columns:   pivot_df_local = pivot_df_local.with_columns(pl.col(c_lap_cnt).fill_null(0).alias(c_lap_cnt))
+            if c_test_cnt in pivot_df_local.columns:  pivot_df_local = pivot_df_local.with_columns(pl.col(c_test_cnt).fill_null(0).alias(c_test_cnt))
             if c_hw in pivot_df_local.columns and c_class in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(
-                    pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_hw)).alias(c_hw)
-                )
+                pivot_df_local = pivot_df_local.with_columns(pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_hw)).alias(c_hw))
             if c_lap_rate in pivot_df_local.columns and c_class in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(
-                    pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_lap_rate)).alias(c_lap_rate)
-                )
+                pivot_df_local = pivot_df_local.with_columns(pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_lap_rate)).alias(c_lap_rate))
             if c_test_rate in pivot_df_local.columns and c_class in pivot_df_local.columns:
-                pivot_df_local = pivot_df_local.with_columns(
-                    pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_test_rate)).alias(c_test_rate)
-                )
+                pivot_df_local = pivot_df_local.with_columns(pl.when(pl.col(c_class) == 0).then(pl.lit(None)).otherwise(pl.col(c_test_rate)).alias(c_test_rate))
 
         desired_column_order_local = ["担当講師N0", "担当講師名", "教室", "総授業数"]
-        rename_map_local = {
-            "担当講師N0": "No",
-            "担当講師名": "氏名",
-            "教室": "教室",
-            "総授業数": "総授業数",
-        }
+        rename_map_local = {"担当講師N0": "No", "担当講師名": "氏名", "教室": "教室", "総授業数": "総授業数"}
 
         week_period_labels_local = []
         for i, w in enumerate(week_numbers_local, start=1):
-            c_class = f"授業数_{w}"
-            c_hw = f"宿題平均_{w}"
-            c_lap_cnt = f"ラップ回数_{w}"
-            c_lap_rate = f"ラップ率_{w}"
-            c_test_cnt = f"テスト回数_{w}"
-            c_test_rate = f"テスト率_{w}"
+            c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate = f"授業数_{w}", f"宿題平均_{w}", f"ラップ回数_{w}", f"ラップ率_{w}", f"テスト回数_{w}", f"テスト率_{w}"
+            desired_column_order_local.extend([c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate])
+            rename_map_local[c_class], rename_map_local[c_hw], rename_map_local[c_lap_cnt] = f"授業{i}", f"平均HW{i}", f"Lap数{i}"
+            rename_map_local[c_lap_rate], rename_map_local[c_test_cnt], rename_map_local[c_test_rate] = f"Lap％{i}", f"テスト数{i}", f"テスト％{i}"
+            week_period_labels_local.append(week_period_by_week_number.get(str(w), f"Week {i}"))
 
-            desired_column_order_local.extend(
-                [c_class, c_hw, c_lap_cnt, c_lap_rate, c_test_cnt, c_test_rate]
-            )
+        existing_desired_columns_local = [c for c in desired_column_order_local if c in pivot_df_local.columns]
+        return pivot_df_local.select(existing_desired_columns_local).rename({k: v for k, v in rename_map_local.items() if k in existing_desired_columns_local}).sort(["教室", "No"]), week_period_labels_local
 
-            rename_map_local[c_class] = f"授業{i}"
-            rename_map_local[c_hw] = f"平均HW{i}"
-            rename_map_local[c_lap_cnt] = f"Lap数{i}"
-            rename_map_local[c_lap_rate] = f"Lap％{i}"
-            rename_map_local[c_test_cnt] = f"テスト数{i}"
-            rename_map_local[c_test_rate] = f"テスト％{i}"
-
-            week_period_labels_local.append(
-                week_period_by_week_number_local.get(str(w), f"Week {i}")
-            )
-
-        existing_desired_columns_local = [
-            c for c in desired_column_order_local if c in pivot_df_local.columns
-        ]
-
-        pivot_df_local = (
-            pivot_df_local.select(existing_desired_columns_local)
-            .rename(
-                {
-                    k: v
-                    for k, v in rename_map_local.items()
-                    if k in existing_desired_columns_local
-                }
-            )
-            .sort(["教室", "No"])
-        )
-
-        return pivot_df_local, week_period_labels_local
-
+    progress("「全集計」用データのマトリクス変換を実行中")
     pivot_df_all, week_period_labels_all = aggregate_and_pivot(attendance_metrics_df)
 
-    grade_exclusion_condition = (
-        pl.col("学年").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False)
-    )
-    subject_exclusion_condition = (
-        pl.col("科目").cast(pl.Utf8).str.contains(r"(国語|小論文)").fill_null(False)
-    )
+    # 学年情報および科目に基づいた除外条件の適用
+    grade_exclusion_condition = pl.col("学年").cast(pl.Utf8).str.contains(r"(高3|高３|高卒)").fill_null(False) if "学年" in cols else pl.lit(False)
+    subject_exclusion_condition = pl.col("科目").cast(pl.Utf8).str.contains(r"(国語|小論文)").fill_null(False) if "科目" in cols else pl.lit(False)
 
-    excluded_metrics_df = attendance_metrics_df.filter(
-        ~grade_exclusion_condition & ~subject_exclusion_condition
-    )
-
-    excluded_pivot_df, week_period_labels_excl = aggregate_and_pivot(
-        excluded_metrics_df
-    )
+    progress("「除外集計」用データの抽出と集計を実行中")
+    excluded_metrics_df = attendance_metrics_df.filter(~grade_exclusion_condition & ~subject_exclusion_condition)
+    excluded_pivot_df, week_period_labels_excl = aggregate_and_pivot(excluded_metrics_df)
 
     classroom_summary_df = (
         attendance_metrics_df.group_by("教室")
-        .agg(
-            pl.len().alias("授業数"),
-            pl.col("担当講師N0").n_unique().alias("講師数"),
-            pl.col("hw_pages").sum().alias("宿題合計"),
-            pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
-            pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数"),
-        )
-        .with_columns(
-            (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
-            (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
-            (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率"),
-        )
-        .sort("教室")
+        .agg(pl.len().alias("授業数"), pl.col("担当講師N0").n_unique().alias("講師数"), pl.col("hw_pages").sum().alias("宿計"), pl.col("has_lap").cast(pl.Int32).sum().alias("ラ回"), pl.col("has_test").cast(pl.Int32).sum().alias("テ回"))
+        .with_columns((pl.col("宿計") / pl.col("授業数")).round(1).alias("宿題平均"), (pl.col("ラ回") / pl.col("授業数")).alias("ラップ率"), (pl.col("テ回") / pl.col("授業数")).alias("テスト率")).sort("教室")
     )
 
     excluded_classroom_summary_df = (
         excluded_metrics_df.group_by("教室")
-        .agg(
-            pl.len().alias("授業数"),
-            pl.col("担当講師N0").n_unique().alias("講師数"),
-            pl.col("hw_pages").sum().alias("宿題合計"),
-            pl.col("has_lap").cast(pl.Int32).sum().alias("ラップ回数"),
-            pl.col("has_test").cast(pl.Int32).sum().alias("テスト回数"),
-        )
-        .with_columns(
-            (pl.col("宿題合計") / pl.col("授業数")).round(1).alias("宿題平均"),
-            (pl.col("ラップ回数") / pl.col("授業数")).alias("ラップ率"),
-            (pl.col("テスト回数") / pl.col("授業数")).alias("テスト率"),
-        )
-        .sort("教室")
+        .agg(pl.len().alias("授業数"), pl.col("担当講師N0").n_unique().alias("講師数"), pl.col("hw_pages").sum().alias("宿計"), pl.col("has_lap").cast(pl.Int32).sum().alias("ラ回"), pl.col("has_test").cast(pl.Int32).sum().alias("テ回"))
+        .with_columns((pl.col("宿計") / pl.col("授業数")).round(1).alias("宿題平均"), (pl.col("ラ回") / pl.col("授業数")).alias("ラップ率"), (pl.col("テ回") / pl.col("授業数")).alias("テスト率")).sort("教室")
     )
 
-    return (
-        pivot_df_all,
-        excluded_pivot_df,
-        classroom_summary_df,
-        excluded_classroom_summary_df,
-        output_file,
-        date_range_str,
-        sheet_name,
-        week_period_labels_all,
-        week_period_labels_excl,
-    )
+    # 【メモリ即時破棄】巨大なオブジェクトを完全破棄
+    del df, attendance_metrics_df, excluded_metrics_df
+    gc.collect()
 
+    return pivot_df_all, excluded_pivot_df, classroom_summary_df, excluded_classroom_summary_df, output_file, date_range_str, sheet_name, week_period_labels_all, week_period_labels_excl
 
 def format_excel_fast(
     all_pivot_df: pl.DataFrame,
@@ -725,503 +473,276 @@ def format_excel_fast(
     week_period_labels_all: list[str],
     week_period_labels_excl: list[str],
 ):
-    progress("xlsxwriterによる超高速書き出し・書式設定中...")
+    progress("xlsxwriterでのファイル生成・書式設定を開始")
 
-    cm_to_inch = 1.0 / 2.54
-
-    def apply_print_settings(
-        worksheet,
-        week_period_labels: list[str] | None = None,
-        repeat_last_row: int = 0,
-        repeat_last_col: int = 3,
-    ) -> None:
-        try:
-            worksheet.set_paper(9)
-        except Exception:
-            pass
-        try:
-            worksheet.set_portrait()
-        except Exception:
-            pass
-        try:
-            worksheet.set_margins(
-                left=cm_to_inch,
-                right=cm_to_inch,
-                top=cm_to_inch,
-                bottom=cm_to_inch,
-                header=0.5 * cm_to_inch,
-                footer=0.5 * cm_to_inch,
-            )
-        except Exception:
-            pass
-        try:
-            worksheet.repeat_rows(0, repeat_last_row)
-        except Exception:
-            pass
-        try:
-            worksheet.repeat_columns(0, repeat_last_col)
-        except Exception:
-            pass
-        if week_period_labels:
-            page_breaks = [4 + i * 6 for i in range(1, len(week_period_labels))]
-            if page_breaks:
-                try:
-                    worksheet.set_v_pagebreaks(page_breaks)
-                except Exception:
-                    pass
-
-    # pandas の ExcelWriter を使ってデータを一括書き出しする（高速化）
     with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
         workbook = writer.book
         ud_font = select_font()
 
-        fmt_title = workbook.add_format({
-            "font_name": ud_font,
-            "bold": True,
-            "font_size": 11,
-            "align": "left",
-            "valign": "vcenter",
-        })
-
-        fmt_title_center = workbook.add_format({
-            "font_name": ud_font,
-            "bold": True,
-            "font_size": 11,
-            "align": "center",
-            "valign": "vcenter",
-            "bg_color": "#E8F6F3",
-            "border": 1,
-        })
-
+        fmt_title = workbook.add_format({"font_name": ud_font, "bold": True, "font_size": 11, "align": "left", "valign": "vcenter"})
+        fmt_title_center = workbook.add_format({"font_name": ud_font, "bold": True, "font_size": 11, "align": "center", "valign": "vcenter", "bg_color": "#E8F6F3", "border": 1})
         fmt_header = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#D3D3D3", "bold": True})
         fmt_white = workbook.add_format({"font_name": ud_font, "border": 1})
-        fmt_gray = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#F5F5F5"})
         fmt_khaki = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#F0E68C"})
         fmt_lavender = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#E6E6FA"})
-
         fmt_white_pct = workbook.add_format({"font_name": ud_font, "border": 1, "num_format": "0.0%"})
-        fmt_gray_pct = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#F5F5F5", "num_format": "0.0%"})
-
-        fmt_white_center = workbook.add_format({"font_name": ud_font, "border": 1, "align": "center"})
-        fmt_gray_center = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#F5F5F5", "align": "center"})
-
         fmt_cond_orange = workbook.add_format({"font_name": ud_font, "bg_color": "#FFA500", "font_color": "#000000"})
         fmt_cond_firebrick = workbook.add_format({"font_name": ud_font, "bg_color": "#B22222", "font_color": "#FFFFFF"})
 
-        def make_safe_sheet_name(raw_name: str, used_names: set[str]) -> str:
-            name = str(raw_name).strip() or "無名教室"
-            translate_table = str.maketrans(
-                {
-                    "/": "／",
-                    "\\": "＼",
-                    "?": "？",
-                    "*": "＊",
-                    "[": "［",
-                    "]": "］",
-                    ":": "：",
-                }
-            )
-            name = name.translate(translate_table)
-            if name.startswith("'"):
-                name = name[1:]
-            if name.endswith("'"):
-                name = name[:-1]
-            name = name[:31] or "無名教室"
-
-            base_name = name
-            counter = 2
-            while name in used_names:
-                suffix = f"_{counter}"
-                name = f"{base_name[:31 - len(suffix)]}{suffix}"
-                counter += 1
-
-            used_names.add(name)
-            return name
-        def write_sheet(
-            writer,
-            sheet_df: pl.DataFrame,
-            week_period_labels: list[str],
-            sheet_title: str,
-            summary_text: str | None = None,
-        ):
-            # Polarsベースで列を直接取り出して書き出す（pandas変換回避）
+        def write_sheet_v7(writer, sheet_df: pl.DataFrame, summary_df: pl.DataFrame, week_period_labels: list[str], sheet_title: str):
+            progress(f"シート [{sheet_title}] へデータをロード中")
             headers = list(sheet_df.columns)
             max_col = len(headers) - 1
+            header_row, data_start, nrows = 1, 2, sheet_df.height
 
-            header_row = 1
-            if summary_text:
-                header_row = 2
-
-            data_start = header_row + 1
-
-            nrows = sheet_df.height
-
-            # 列値を Python リストで保持する辞書
             col_values: dict[str, list] = {}
-
-            # helper to safely get series
             for col in headers:
                 try:
                     s = sheet_df.get_column(col)
                 except Exception:
                     s = pl.Series(col, [None] * nrows)
 
-                # No の正規化（先頭ゼロ除去）
                 if col == "No":
                     vals = [None if v is None else str(v).strip() for v in s.to_list()]
-                    normed = []
-                    for v in vals:
-                        if v is None:
-                            normed.append(None)
-                            continue
-                        tmp = v.lstrip("0")
-                        normed.append(tmp if tmp != "" else v)
-                    col_values[col] = normed
+                    col_values[col] = [None if v is None else (v.lstrip("0") if v.lstrip("0") != "" else v) for v in vals]
                     continue
-
-                # counts-like columns
                 if any(k in col for k in ("授業", "Lap数", "テスト数", "総授業数")):
                     try:
-                        num = s.cast(pl.Float64, strict=False).fill_null(0)
-                        col_values[col] = [None if v is None else (float(v) if v is not None else 0.0) for v in num.to_list()]
+                        col_values[col] = [0.0 if v is None else float(v) for v in s.cast(pl.Float64, strict=False).fill_null(0).to_list()]
                     except Exception:
                         col_values[col] = [0.0] * nrows
                     continue
-
-                # average / percent: keep None for missing
                 if ("平均" in col) or ("％" in col) or ("率" in col):
                     try:
-                        num = s.cast(pl.Float64, strict=False)
-                        col_values[col] = [None if v is None else float(v) for v in num.to_list()]
+                        col_values[col] = [None if v is None else float(v) for v in s.cast(pl.Float64, strict=False).to_list()]
                     except Exception:
                         col_values[col] = [None] * nrows
                     continue
+                col_values[col] = [None if v is None else str(v) for v in s.to_list()]
 
-                # fallback: try numeric, else strings
-                try:
-                    num = s.cast(pl.Float64, strict=False)
-                    # Heuristic: if more than half values are numeric, treat as numeric
-                    if (nrows == 0) or (num.null_count() < (nrows / 2)):
-                        filled = num.fill_null(0)
-                        col_values[col] = [None if v is None else (float(v) if v is not None else 0.0) for v in filled.to_list()]
-                    else:
-                        raw = s.to_list()
-                        col_values[col] = [None if v is None else str(v) for v in raw]
-                except Exception:
-                    raw = s.to_list()
-                    col_values[col] = [None if v is None else str(v) for v in raw]
-
-            # 授業が0の期間については関連指標を空にする（v3/v4と一致）
-            lesson_nums = set()
+            lesson_nums = []
             for h in headers:
                 m = re.search(r"授業(\d+)", str(h))
-                if m:
-                    lesson_nums.add(int(m.group(1)))
+                if m: lesson_nums.append(int(m.group(1)))
+            lesson_nums = sorted(list(set(lesson_nums)))
 
             for i in lesson_nums:
                 lesson_col = f"授業{i}"
-                if lesson_col not in col_values:
-                    continue
+                if lesson_col not in col_values: continue
                 lesson_vals = col_values[lesson_col]
                 related = [f"平均HW{i}", f"Lap数{i}", f"Lap％{i}", f"テスト数{i}", f"テスト％{i}"]
                 for idx, lv in enumerate(lesson_vals):
                     if lv == 0 or lv == 0.0:
                         for c in related:
-                            if c in col_values:
-                                col_values[c][idx] = None
+                            if c in col_values: col_values[c][idx] = None
 
-            # 最終的な欠損は '-' にして表示（文字列化）
+            if nrows > 0:
+                progress(f"シート [{sheet_title}] の平均処理を実行中")
+                row_classrooms = col_values.get("教室", [""] * nrows)
+                unique_classrooms = sorted(list(set([v for v in row_classrooms if v])))
+                final_col_values: dict[str, list] = {c: [] for c in headers}
+
+                # --- 1. 全体平均行（No: 0, 氏名: AVG, 教室: FS）の作成 ---
+                total_lessons_all = sum(v for v in col_values["総授業数"] if isinstance(v, (int, float)))
+                final_col_values["No"].append("0")
+                final_col_values["氏名"].append("AVG")
+                final_col_values["教室"].append("FS")
+                final_col_values["総授業数"].append(total_lessons_all)
+
+                for i in lesson_nums:
+                    w_lessons = sum(v for v in col_values[f"授業{i}"] if isinstance(v, (int, float)))
+                    final_col_values[f"授業{i}"].append(w_lessons)
+                    if w_lessons == 0:
+                        final_col_values[f"平均HW{i}"].append(None)
+                        final_col_values[f"Lap数{i}"].append(0.0)
+                        final_col_values[f"Lap％{i}"].append(None)
+                        final_col_values[f"テスト数{i}"].append(0.0)
+                        final_col_values[f"テスト％{i}"].append(None)
+                    else:
+                        w_laps = sum(v for v in col_values[f"Lap数{i}"] if isinstance(v, (int, float)))
+                        w_tests = sum(v for v in col_values[f"テスト数{i}"] if isinstance(v, (int, float)))
+                        final_col_values[f"Lap数{i}"].append(w_laps)
+                        final_col_values[f"テスト数{i}"].append(w_tests)
+                        final_col_values[f"Lap％{i}"].append(w_laps / w_lessons)
+                        final_col_values[f"テスト％{i}"].append(w_tests / w_lessons)
+
+                        total_hw_pages = 0.0
+                        for idx in range(nrows):
+                            l_val, h_val = col_values[f"授業{i}"][idx], col_values[f"平均HW{i}"][idx]
+                            if isinstance(l_val, (int, float)) and isinstance(h_val, (int, float)):
+                                total_hw_pages += h_val * l_val
+                        final_col_values[f"平均HW{i}"].append(round(total_hw_pages / w_lessons, 1))
+
+                # --- 2. 各教室ごとに「教室平均行」＋「講師データ」をブロック化 ---
+                for target_cls in unique_classrooms:
+                    cls_indices = [idx for idx, cls in enumerate(row_classrooms) if cls == target_cls]
+                    if not cls_indices: continue
+
+                    try:
+                        cls_sum_row = summary_df.filter(pl.col("教室").cast(pl.Utf8).str.strip_chars() == target_cls)
+                        cls_total_lessons = float(cls_sum_row.row(0)[1]) if cls_sum_row.height == 1 else 0.0
+                    except Exception:
+                        cls_total_lessons = sum(col_values["総授業数"][idx] for idx in cls_indices)
+
+                    final_col_values["No"].append("0")
+                    final_col_values["氏名"].append("AVG")
+                    final_col_values["教室"].append(target_cls)
+                    final_col_values["総授業数"].append(cls_total_lessons)
+
+                    for i in lesson_nums:
+                        w_lessons_cls = sum(col_values[f"授業{i}"][idx] for idx in cls_indices if isinstance(col_values[f"授業{i}"][idx], (int, float)))
+                        final_col_values[f"授業{i}"].append(w_lessons_cls)
+                        if w_lessons_cls == 0:
+                            final_col_values[f"平均HW{i}"].append(None)
+                            final_col_values[f"Lap数{i}"].append(0.0)
+                            final_col_values[f"Lap％{i}"].append(None)
+                            final_col_values[f"テスト数{i}"].append(0.0)
+                            final_col_values[f"テスト％{i}"].append(None)
+                        else:
+                            w_laps_cls = sum(col_values[f"Lap数{i}"][idx] for idx in cls_indices if isinstance(col_values[f"Lap数{i}"][idx], (int, float)))
+                            w_tests_cls = sum(col_values[f"テスト数{i}"][idx] for idx in cls_indices if isinstance(col_values[f"テスト数{i}"][idx], (int, float)))
+                            final_col_values[f"Lap数{i}"].append(w_laps_cls)
+                            final_col_values[f"テスト数{i}"].append(w_tests_cls)
+                            final_col_values[f"Lap％{i}"].append(w_laps_cls / w_lessons_cls)
+                            final_col_values[f"テスト％{i}"].append(w_tests_cls / w_lessons_cls)
+                            total_hw_pages_cls = 0.0
+                            for idx in cls_indices:
+                                l_val, h_val = col_values[f"授業{i}"][idx], col_values[f"平均HW{i}"][idx]
+                                if isinstance(l_val, (int, float)) and isinstance(h_val, (int, float)):
+                                    total_hw_pages_cls += h_val * l_val
+                            final_col_values[f"平均HW{i}"].append(round(total_hw_pages_cls / w_lessons_cls, 1))
+
+                    for idx in cls_indices:
+                        for col in headers:
+                            final_col_values[col].append(col_values[col][idx])
+
+                col_values, nrows = final_col_values, len(final_col_values["No"])
+
             for col, vals in col_values.items():
                 for j, v in enumerate(vals):
-                    if v is None:
-                        vals[j] = "-"
+                    if v is None: vals[j] = "-"
 
-            # シート作成
+            # 【修正点】worksheetオブジェクトをここで正しく初期化・バインド
             if sheet_title in writer.sheets:
                 worksheet = writer.sheets[sheet_title]
             else:
                 worksheet = workbook.add_worksheet(sheet_title)
                 writer.sheets[sheet_title] = worksheet
 
-            # デフォルトの列書式を全列に適用しておく（データ行にもフォントが反映される）
-            try:
-                worksheet.set_column(0, max_col, None, fmt_white)
-            except Exception:
-                pass
-
-            # データ列を一括書き出す
             for col_idx, col_name in enumerate(headers):
-                arr = col_values.get(col_name, ["-"] * nrows)
-                worksheet.write_column(data_start, col_idx, arr)
+                worksheet.write_column(data_start, col_idx, col_values.get(col_name, ["-"] * nrows))
 
-            # 列フォーマット: デフォルトを一括、パーセント列は連続範囲でまとめて適用
-            if max_col >= 3:
-                try:
-                    worksheet.set_column(3, max_col, None, fmt_white)
-                except Exception:
-                    worksheet.set_column(3, max_col, 9, fmt_white)
+            # xlsxwriter側でのベースカラーパレット設定
+            if nrows > 0:
+                for col_idx, col_name in enumerate(headers):
+                    if col_idx in (0, 1, 2):    worksheet.set_column(col_idx, col_idx, 10, fmt_white)
+                    elif col_idx == 3:          worksheet.set_column(col_idx, col_idx, 10, fmt_lavender)
+                    else:
+                        offset = col_idx - (4 + ((col_idx - 4) // 6) * 6)
+                        if offset == 0:         worksheet.set_column(col_idx, col_idx, 9, fmt_khaki)
+                        elif offset in (3, 5):  worksheet.set_column(col_idx, col_idx, 9, fmt_white_pct)
+                        else:                   worksheet.set_column(col_idx, col_idx, 9, fmt_white)
 
-            # collect percent/率 column indices and merge contiguous runs
-            pct_idxs = [i for i, c in enumerate(headers) if ("％" in str(c) or "率" in str(c))]
-            if pct_idxs:
-                ranges = []
-                start = prev = pct_idxs[0]
-                for idx in pct_idxs[1:]:
-                    if idx == prev + 1:
-                        prev = idx
-                        continue
-                    ranges.append((start, prev))
-                    start = prev = idx
-                ranges.append((start, prev))
-
-                for a, b in ranges:
-                    try:
-                        worksheet.set_column(a, b, None, fmt_white_pct)
-                    except Exception:
-                        worksheet.set_column(a, b, 9, fmt_white_pct)
-
-            # タイトル／ヘッダー上書き（フォーマット適用）
             try:
-                worksheet.merge_range(0, 0, 0, min(2, max_col), date_range_str, fmt_title)
+                worksheet.merge_range(0, 0, 0, min(3, max_col), date_range_str, fmt_title)
             except Exception:
                 worksheet.write(0, 0, date_range_str, fmt_title)
             worksheet.set_row(0, 20)
-
-            # ヘッダーは一度に書く
             worksheet.write_row(header_row, 0, headers, fmt_header)
-
-            # 列幅算出（先頭3列は日本語幅を考慮）
-            max_a_width = 4
-            max_b_width = 12
-            max_c_width = 10
-            for idx, col in enumerate(headers[:3]):
-                vals = col_values.get(col, [""] * nrows)
-                # estimate length from stringified values
-                max_len = max((len(str(x)) for x in vals), default=0)
-                if idx == 0:
-                    max_a_width = max(max_a_width, float(max_len) * 1.9)
-                elif idx == 1:
-                    max_b_width = max(max_b_width, float(max_len) * 1.6)
-                else:
-                    max_c_width = max(max_c_width, float(max_len) * 1.6)
-
-            worksheet.set_column(0, 0, max_a_width + 3, fmt_white)
-            worksheet.set_column(1, 1, max_b_width + 3, fmt_white)
-            worksheet.set_column(2, 2, max_c_width + 3, fmt_white)
-            # 総授業数列は D 列 (index 3) なので目立つ色にする
-            worksheet.set_column(3, 3, 9, fmt_lavender)
-            if max_col >= 4:
-                worksheet.set_column(4, max_col, 9, fmt_white)
-
-            # 各週ブロックごとに列フォーマットを明示的に設定しておく
-            # 授業数列(start_col) は枠色を付け、率列はパーセント書式を適用する
-            for i in range(len(week_period_labels)):
-                start_col = 4 + i * 6
-                if start_col > max_col:
-                    break
-                # 授業数列
-                try:
-                    worksheet.set_column(start_col, start_col, 9, fmt_khaki)
-                except Exception:
-                    pass
-                # ラップ率とテスト率の列 (offset 3,5)
-                try:
-                    if start_col + 3 <= max_col:
-                        worksheet.set_column(start_col + 3, start_col + 3, 9, fmt_white_pct)
-                    if start_col + 5 <= max_col:
-                        worksheet.set_column(start_col + 5, start_col + 5, 9, fmt_white_pct)
-                except Exception:
-                    pass
 
             for i, period_str in enumerate(week_period_labels):
                 start_col = 4 + i * 6
                 if start_col + 5 <= max_col:
-                    worksheet.merge_range(
-                        0, start_col, 0, start_col + 5, period_str, fmt_title_center
-                    )
+                    worksheet.merge_range(0, start_col, 0, start_col + 5, period_str, fmt_title_center)
 
             last_row = data_start + nrows - 1
             worksheet.autofilter(header_row, 0, last_row, max_col)
 
-            # 条件付き書式は週ごとのブロックごとに3つだけ適用（既存と同様）
             for c_base in range(4, len(headers), 6):
-                if c_base + 5 > max_col:
-                    break
-
-                col_hw = c_base + 1
-                col_lap = c_base + 3
-                col_test = c_base + 5
-
-                worksheet.conditional_format(
-                    data_start,
-                    col_hw,
-                    last_row,
-                    col_hw,
-                    {"type": "cell", "criteria": "<", "value": 6, "format": fmt_cond_orange},
-                )
-
-                worksheet.conditional_format(
-                    data_start,
-                    col_lap,
-                    last_row,
-                    col_lap,
-                    {"type": "cell", "criteria": "<", "value": 0.7, "format": fmt_cond_firebrick},
-                )
-                worksheet.conditional_format(
-                    data_start,
-                    col_test,
-                    last_row,
-                    col_test,
-                    {"type": "cell", "criteria": "<", "value": 0.7, "format": fmt_cond_firebrick},
-                )
+                if c_base + 5 > max_col: break
+                worksheet.conditional_format(data_start, c_base + 1, last_row, c_base + 1, {"type": "cell", "criteria": "<", "value": 6, "format": fmt_cond_orange})
+                worksheet.conditional_format(data_start, c_base + 3, last_row, c_base + 3, {"type": "cell", "criteria": "<", "value": 0.7, "format": fmt_cond_firebrick})
+                worksheet.conditional_format(data_start, c_base + 5, last_row, c_base + 5, {"type": "cell", "criteria": "<", "value": 0.7, "format": fmt_cond_firebrick})
 
             worksheet.freeze_panes(data_start, 4)
-            apply_print_settings(worksheet, week_period_labels)
-            progress(f"完了：{sheet_title}")
+            progress(f"シート [{sheet_title}] のデータ貼り付け・条件付き書式の設定が完了")
 
-        # シート書き出し（writer 経由）
-        write_sheet(writer, all_pivot_df, week_period_labels_all, "全集計")
-        write_sheet(writer, excluded_pivot_df, week_period_labels_excl, "除外集計")
+        # 2シート体制での出力
+        write_sheet_v7(writer, all_pivot_df, classroom_summary_df, week_period_labels_all, "全集計")
+        write_sheet_v7(writer, excluded_pivot_df, excluded_classroom_summary_df, week_period_labels_excl, "除外集計")
 
-    def write_simple_sheet(
-        worksheet, summary_df: pl.DataFrame, sheet_title: str, date_title: str
-    ):
-        # 列単位で一括書き出ししてフォーマットも列単位で適用する
-        try:
-            worksheet.merge_range(
-                0, 0, 0, max(0, summary_df.width - 1), date_title, fmt_title
-            )
-        except Exception:
-            worksheet.write(0, 0, date_title, fmt_title)
-        worksheet.set_row(0, 20)
+    # =========================================================================
+    # 【openpyxl】による後処理（Autofit、改ページ・印刷設定の強制適用）
+    # =========================================================================
+    progress("openpyxlで書式調整を開始")
+    wb = openpyxl.load_workbook(output_file)
 
-        # pandas を介して一括書き出し
-        dfpd = summary_df.to_pandas()
-        # ヘッダーは自分で書く
-        for c, col_name in enumerate(dfpd.columns):
-            worksheet.write(1, c, col_name, fmt_header)
+    for sheet in wb.worksheets:
+        progress(f"シート [{sheet.title}] の書式調整中")
+        # A:D列に対して明示的に文字数測定のAutofitを完全適用（上書きバグ防止）
+        for col_letter in ['A', 'B', 'C', 'D']:
+            max_len = 0
+            for row_idx in range(3, sheet.max_row + 1):
+                val = sheet[f"{col_letter}{row_idx}"].value
+                if val is not None: max_len = max(max_len, len(str(val)))
 
-        # データは to_excel を使って一括書き出しし、列単位でフォーマットを適用
-        # write to a temporary area starting row 2
-        tmp_start = 2
-        dfpd.to_excel(writer, sheet_name=sheet_title, index=False, startrow=tmp_start, header=False)
+            if col_letter == 'A':    sheet.column_dimensions[col_letter].width = max(max_len * 2.0, 6)
+            elif col_letter == 'B':  sheet.column_dimensions[col_letter].width = max(max_len * 1.8, 14)
+            elif col_letter == 'C':  sheet.column_dimensions[col_letter].width = max(max_len * 1.8, 12)
+            elif col_letter == 'D':  sheet.column_dimensions[col_letter].width = max(max_len * 1.5, 11)
 
-        # 列ごとにフォーマット適用
-        for c, colname in enumerate(dfpd.columns):
-            if "率" in colname:
-                worksheet.set_column(c, c, 12, fmt_white_pct)
-            else:
-                worksheet.set_column(c, c, 12, fmt_white)
+        sheet.page_setup.orientation = sheet.ORIENTATION_PORTRAIT
+        sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
 
-        worksheet.autofilter(1, 0, 1 + dfpd.shape[0], max(0, dfpd.shape[1] - 1))
-        worksheet.freeze_panes(2, 0)
-        apply_print_settings(worksheet, None, 0, min(3, max(0, dfpd.shape[1] - 1)))
+        margin_inch = 1.0 / 2.54
+        sheet.page_margins.left = sheet.page_margins.right = sheet.page_margins.top = sheet.page_margins.bottom = margin_inch
+        sheet.page_margins.header = sheet.page_margins.footer = 0.5 / 2.54
 
-    try:
-        merged = classroom_summary_df.join(
-            excluded_classroom_summary_df, on="教室", how="outer", suffix="_除外"
-        )
-    except Exception:
-        merged = classroom_summary_df
-
-    preferred = [
-        "教室",
-        "授業数",
-        "講師数",
-        "宿題平均",
-        "ラップ率",
-        "テスト率",
-        "授業数_除外",
-        "講師数_除外",
-        "宿題平均_除外",
-        "ラップ率_除外",
-        "テスト率_除外",
-    ]
-    cols_to_show = [c for c in preferred if c in merged.columns]
-    if "教室" not in cols_to_show:
-        cols_to_show = merged.columns
-
-    merged = merged.select(cols_to_show)
-
-        # 全教室のサマリは上書きでフォーマット適用するため一度書いたシートを再利用
-        # pandas で一括書き出した後、追加フォーマットは write_simple_sheet を使うため取得
-        # ここは簡便化のためそのまま write_simple_sheet を呼ぶ代わりに write_sheet を使う
-    write_sheet(writer, merged, [], "全教室")
-
-    used_sheet_names = {"全集計", "除外集計"}
-    classroom_values = []
-    seen_classrooms = set()
-    for value in all_pivot_df.get_column("教室").to_list():
-        key = "" if value is None else str(value)
-        if key in seen_classrooms:
-            continue
-        seen_classrooms.add(key)
-        classroom_values.append(value)
-
-    progress(f"教室別シートを作成中... 対象教室数={len(classroom_values)}")
-    for classroom_value in classroom_values:
-        classroom_label = (
-            "無名教室"
-            if classroom_value is None
-            else str(classroom_value).strip() or "無名教室"
-        )
-        sheet_label = make_safe_sheet_name(classroom_label, used_sheet_names)
-
-        if classroom_value is None:
-            classroom_df = all_pivot_df.filter(pl.col("教室").is_null())
+        if sheet.sheet_properties.pageSetUpPr is None:
+            from openpyxl.worksheet.properties import PageSetupProperties
+            sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
         else:
-            classroom_df = all_pivot_df.filter(
-                pl.col("教室").cast(pl.Utf8).str.strip_chars() == classroom_label
-            )
+            sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.page_setup.fitToWidth, sheet.page_setup.fitToHeight = 1, 0
 
-        if classroom_df.height == 0:
-            continue
+        # タイトル行・列の設定
+        sheet.print_title_cols = "A:D"
+        sheet.print_title_rows = "1:3"
 
-        summary_row = None
-        try:
-            if classroom_value is None:
-                summary_row = classroom_summary_df.filter(pl.col("教室").is_null())
-            else:
-                summary_row = classroom_summary_df.filter(
-                    pl.col("教室").cast(pl.Utf8).str.strip_chars() == classroom_label
-                )
-            if summary_row.height == 1:
-                r = summary_row.row(0)
-                total_classes = int(r[1]) if r[1] is not None else 0
-                instructor_count = int(r[2]) if r[2] is not None else 0
-                hw_avg = float(r[6]) if r[6] is not None else 0.0
-                lap_rate = float(r[7]) if r[7] is not None else 0.0
-                test_rate = float(r[8]) if r[8] is not None else 0.0
-                top_summary = f"教室: {classroom_label}  総授業数: {total_classes}  講師数: {instructor_count}  宿題平均: {hw_avg:.1f}  Lap率: {lap_rate:.1%}  テスト率: {test_rate:.1%}"
-            else:
-                top_summary = f"教室: {classroom_label}"
-        except Exception:
-            top_summary = f"教室: {classroom_label}"
+        # 垂直方向の『1期間（6列）ごと』の強制改ページ制御
+        sheet.col_breaks = ColBreak()
+        col_count = sheet.max_column
+        current_break_col = 4 + 6  # 10列目 (第1期間の右端)
+        while current_break_col < col_count:
+            from openpyxl.worksheet.pagebreak import Break
+            sheet.col_breaks.append(Break(id=current_break_col))
+            current_break_col += 6
 
-            # クラス別シートは書式付きの通常シートとして出力
-        write_sheet(writer, classroom_df, week_period_labels_all, sheet_label, top_summary)
+        from openpyxl.utils import get_column_letter
+        sheet.print_area = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+
+    progress("書式設定を保存中")
+    wb.save(output_file)
+    wb.close()
+
+    # 【メモリ即時破棄】データフレームを完全消去してメモリ返却
+    progress("GCを実行中")
+    del all_pivot_df, excluded_pivot_df, classroom_summary_df, excluded_classroom_summary_df
+    gc.collect()
 
 def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> None:
     dlg = tk.Toplevel(parent) if parent else tk.Toplevel()
     dlg.title(title)
-
     try:
-        if parent:
-            scale = float(parent.tk.call("tk", "scaling"))
-        else:
-            scale = float(dlg.tk.call("tk", "scaling"))
+        scale = float(parent.tk.call("tk", "scaling")) if parent else float(dlg.tk.call("tk", "scaling"))
     except Exception:
         scale = 1.0
 
     base_font = tkfont.nametofont("TkDefaultFont")
-    try:
-        fsize = max(int(base_font.cget("size") * scale), 10)
-    except Exception:
-        fsize = 11
+    fsize = max(int(base_font.cget("size") * scale), 10) if Exception else 11
     dlg_font = tkfont.Font(family=base_font.cget("family"), size=fsize)
 
     dlg.geometry(f"{int(700*scale)}x{int(360*scale)}")
-
     txt = tk.Text(dlg, wrap="word", font=dlg_font)
     txt.insert("1.0", message)
     txt.configure(state="disabled")
@@ -1237,14 +758,8 @@ def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> 
         except Exception:
             pass
 
-    btn_copy = tk.Button(
-        frm, text="エラーメッセージをコピー", command=_copy, font=dlg_font
-    )
-    btn_copy.pack(side="left")
-
-    btn_close = tk.Button(frm, text="閉じる", command=dlg.destroy, font=dlg_font)
-    btn_close.pack(side="right")
-
+    tk.Button(frm, text="エラーメッセージをコピー", command=_copy, font=dlg_font).pack(side="left")
+    tk.Button(frm, text="閉じる", command=dlg.destroy, font=dlg_font).pack(side="right")
     try:
         dlg.transient(parent)
         dlg.grab_set()
@@ -1266,14 +781,9 @@ def main():
         print("集計元のExcelファイルを選択してください...")
         input_file = filedialog.askopenfilename(
             title="集計元のExcelファイルを選択してください",
-            filetypes=[
-                ("MSL出力ファイル", "scube2*.xlsx"),
-                ("Excelファイル", "*.xlsx"),
-                ("すべてのファイル", "*.*"),
-            ],
+            filetypes=[("MSL出力ファイル", "scube2*.xlsx"), ("Excelファイル", "*.xlsx"), ("すべてのファイル", "*.*")],
             parent=root,
         )
-
         root.attributes("-topmost", False)
 
         if not input_file:
@@ -1308,7 +818,6 @@ def main():
 
         total_elapsed = time.perf_counter() - total_start_time
         processed_classroom_count = classroom_summary_df.height
-        processed_lesson_count = 0
         try:
             processed_lesson_count = int(classroom_summary_df.get_column("授業数").sum())
         except Exception:
@@ -1325,11 +834,7 @@ def main():
         root.attributes("-topmost", True)
         messagebox.showinfo("集計完了", result_msg, parent=root)
         root.attributes("-topmost", False)
-
-        print(
-            f"処理完了(実行時間: {total_elapsed:.2f}秒, "
-            f"処理教室数: {processed_classroom_count}教室, 授業数: {processed_lesson_count}件)"
-        )
+        progress(f"処理完了(実行時間: {total_elapsed:.2f}秒, 処理教室数: {processed_classroom_count}教室, 授業数: {processed_lesson_count}件)")
 
     except KeyboardInterrupt:
         print("処理を中断しました。")
@@ -1342,9 +847,7 @@ def main():
             root.attributes("-topmost", True)
             show_error_dialog("処理中にエラーが発生しました", tb, parent=root)
         except Exception:
-            messagebox.showerror(
-                "エラー", f"処理中にエラーが発生しました:\n{e}", parent=root
-            )
+            messagebox.showerror("エラー", f"処理中にエラーが発生しました:\n{e}", parent=root)
     finally:
         root.destroy()
 
