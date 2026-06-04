@@ -5,25 +5,51 @@ import sys
 import pandas as pd
 import numpy as np
 
+# 定数設定
 SAMPLE = "sample.xlsx"
+ROWS = 50000
+DATE_RANGE = 90
+ROOMS = 26
+TEACHERS = 150
 
-def make_sample(path: str, rows: int = 2000):
+def make_sample(path: str, rows: int = ROWS):
     if os.path.exists(path):
         os.remove(path)
 
-    print(f"generating sample {path} ({rows} rows)")
-    dates = pd.date_range(end=pd.Timestamp.today(), periods=30)
+    print(f"generating sample {path} ({ROWS} rows)")
+    dates = pd.date_range(end=pd.Timestamp.today(), periods=DATE_RANGE)
     data = []
+
+    subject_map = {
+        "小学": ["国語", "英語", "算数", "理科", "社会"],
+        "中学": ["国語", "英語", "数学", "理科", "社会"],
+        "高校": [
+            "国語", "英語", "数学", "物理", "算数", "現代文", "化学", "理科",
+            "古文", "日本史", "社会", "公共", "生物", "政治経済", "小論文", "歴史", "世界史"
+        ]
+    }
+
     for i in range(rows):
         d = np.random.choice(dates)
         date_str = pd.Timestamp(d).strftime("%Y-%m-%d")
 
         attendance = np.random.choice(np.array(["出席", "欠席"], dtype=object), p=[0.9, 0.1])
-        teacher = f"講師{np.random.randint(1,50)}"
-        teacher_no = np.random.randint(1,200)
-        room = f"教室{np.random.randint(1,20)}"
-        grade = np.random.choice(["小4", "小5", "小6", "中1", "中2", "中3", "高1", "高2", "高3"])
-        subject = np.random.choice(["算数", "数学", "国語", "英語", "理科", "社会"])  # v2~v5で必須となる科目列の追加
+        teacher = f"講師{np.random.randint(1, TEACHERS+1)}"
+        teacher_no = np.random.randint(1,10000)
+        room = f"教室{chr(64 + np.random.randint(1, ROOMS+1))}"
+
+        # 全学年（小1〜高卒）の抽選
+        grade = np.random.choice(["小1", "小2", "小3", "小4", "小5", "小6", "中1", "中2", "中3", "高1", "高2", "高3", "高卒"])
+
+        # 学年に応じて紐づく科目の抽選プールを動的に切り替え
+        if grade.startswith("小"):
+            subj_pool = subject_map["小学"]
+        elif grade.startswith("中"):
+            subj_pool = subject_map["中学"]
+        else:
+            subj_pool = subject_map["高校"]
+
+        subject = np.random.choice(subj_pool)
 
         row = {
             "日付": date_str,
@@ -32,7 +58,7 @@ def make_sample(path: str, rows: int = 2000):
             "担当講師N0": teacher_no,
             "教室": room,
             "学年": grade,
-            "科目": subject,  # データ行に組み込み
+            "科目": subject,
         }
         for k in range(1,6):
             row[f"宿題名_{k}"] = np.random.choice(np.array(["単語帳","問題集","練習", "Leap"], dtype=object), p=[0.4,0.3,0.25,0.05])
@@ -111,8 +137,8 @@ def main():
 
     os.chdir(bench_dir)
 
-    make_sample(SAMPLE, rows=2000)
-    versions = [1, 2, 3, 4, 5, 6]
+    make_sample(SAMPLE, rows=ROWS)
+    versions = [1, 2, 3, 4, 5, 6, 7]
     results = {}
 
     for v in versions:
