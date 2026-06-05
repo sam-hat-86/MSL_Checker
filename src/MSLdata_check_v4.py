@@ -1210,7 +1210,6 @@ def format_excel_fast(
             continue
 
         ## progress(f"教室シート作成: {classroom_label} -> {sheet_label}")
-        progress(f"教室シート作成:{sheet_label}")
         ws_classroom = workbook.add_worksheet(sheet_label)
         # 教室の集計値を取得してトップに表示する文字列を作る
         summary_row = None
