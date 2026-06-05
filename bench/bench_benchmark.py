@@ -5,17 +5,20 @@ import sys
 import pandas as pd
 import numpy as np
 
-# 定数設定
-# ROWS
-# DATE_RANGE
-# ROOMS
-# TEACHERS
 
 def call_set():
+    global mk_sample, VERSIONS
+
+    mk_sample = True
+    # mk_sample = False
+
+    # versions = [1,2,3,4,5,6,7,8,9]
+    VERSIONS = [7, 8, 9]
+
     # set_CONSTS(10000, 30, 5, 10)
-    set_CONSTS(20000, 30, 10, 15)
-    # set_CONSTS(50000, 60, 20, 20)
-    # set_CONSTS(100000, 60, 26, 30)
+    # set_CONSTS(20000, 30, 10, 10)
+    # set_CONSTS(50000, 60, 15, 15)
+    set_CONSTS(100000, 60, 15, 15)
 
 def set_CONSTS(R, D, C, T):
     global ROWS, DATE_RANGE, ROOMS, TEACHERS, SAMPLE_PATH
@@ -51,10 +54,8 @@ def make_sample():
         teacher_no = np.random.randint(1,10000)
         room = f"教室{chr(64 + np.random.randint(1, ROOMS+1))}"
 
-        # 全学年（小1〜高卒）の抽選
         grade = np.random.choice(["小1", "小2", "小3", "小4", "小5", "小6", "中1", "中2", "中3", "高1", "高2", "高3", "高卒"])
 
-        # 学年に応じて紐づく科目の抽選プールを動的に切り替え
         if grade.startswith("小"):
             subj_pool = subject_map["小学"]
         elif grade.startswith("中"):
@@ -74,14 +75,14 @@ def make_sample():
             "科目": subject,
         }
         for k in range(1,6):
-            row[f"宿題名_{k}"] = np.random.choice(np.array(["単語帳","問題集","練習", "Leap"], dtype=object), p=[0.4,0.3,0.25,0.05])
+            row[f"宿題名_{k}"] = np.random.choice(np.array(["単語帳","問題集","Lodestar", "BUILDER","Leap"], dtype=object), p=[0.05,0.2,0.5,0.2,0.05])
             s = np.random.randint(1,30)
             e = s + np.random.randint(0,3)
             row[f"宿題開始ページ_{k}"] = s
             row[f"宿題終了ページ_{k}"] = e
         for k in range(1,6):
-            row[f"ラップ{k}（分子）"] = np.random.choice(np.array([1,0,None], dtype=object), p=[0.1,0.85,0.05])
-            row[f"確認{k}（分子）"] = np.random.choice(np.array([1,0,None], dtype=object), p=[0.05,0.9,0.05])
+            row[f"ラップ{k}（分子）"] = np.random.choice(np.array([1,0,None], dtype=object), p=[0.6,0.3,0.1])
+            row[f"確認{k}（分子）"] = np.random.choice(np.array([1,0,None], dtype=object), p=[0.7,0.2,0.1])
         data.append(row)
 
     df = pd.DataFrame(data)
@@ -102,11 +103,18 @@ def bench_module(mod_name: str, sample_path: str, out_prefix: str):
         if hasattr(mod, "format_excel_fast"):
             args = list(res) if isinstance(res, (list, tuple)) else [res]
             replaced = False
+
+            # 安全なパス置換：戻り値配列の中から確実に拡張子が.xlsxの文字列要素を見つけてout_fileに置き換える
             for i, v in enumerate(args):
                 if isinstance(v, str) and v.lower().endswith(".xlsx"):
                     args[i] = out_file
                     replaced = True
                     break
+            if not replaced and len(args) >= 5:
+                # 明示的なインデックスによる予備の置換（プロセスの第5戻り値がoutput_file仕様）
+                args[4] = out_file
+                replaced = True
+
             if not replaced:
                 args.append(out_file)
 
@@ -138,7 +146,6 @@ def bench_module(mod_name: str, sample_path: str, out_prefix: str):
     t3 = time.perf_counter()
     print(f"書き込み: {t3-t2:.2f}s")
 
-    # 出力ファイルのサイズ（KB）を計算して戻り値に追加
     file_size_kb = os.path.getsize(out_file) / 1024 if os.path.exists(out_file) else 0.0
     return (t1-t0, t3-t2, out_file, file_size_kb)
 
@@ -154,12 +161,12 @@ def main():
 
     os.chdir(bench_dir)
 
-    make_sample()
-    # versions = [1,2,3,4,5,6,7,8]
-    versions = [7,8]
+    if mk_sample:
+        make_sample()
+
     results = {}
 
-    for v in versions:
+    for v in VERSIONS:
         mod_name = f"MSLdata_check_v{v}"
         try:
             res = bench_module(mod_name, SAMPLE_PATH, "bench_op")
