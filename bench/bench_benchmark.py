@@ -6,17 +6,30 @@ import pandas as pd
 import numpy as np
 
 # 定数設定
-SAMPLE = "sample.xlsx"
-ROWS = 50000
-DATE_RANGE = 90
-ROOMS = 26
-TEACHERS = 150
+# ROWS
+# DATE_RANGE
+# ROOMS
+# TEACHERS
 
-def make_sample(path: str, rows: int = ROWS):
-    if os.path.exists(path):
-        os.remove(path)
+def call_set():
+    # set_CONSTS(10000, 30, 5, 10)
+    set_CONSTS(20000, 30, 10, 15)
+    # set_CONSTS(50000, 60, 20, 20)
+    # set_CONSTS(100000, 60, 26, 30)
 
-    print(f"generating sample {path} ({ROWS} rows)")
+def set_CONSTS(R, D, C, T):
+    global ROWS, DATE_RANGE, ROOMS, TEACHERS, SAMPLE_PATH
+    ROWS = R
+    DATE_RANGE = D
+    ROOMS = C
+    TEACHERS = T
+    SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
+
+def make_sample():
+    if os.path.exists(SAMPLE_PATH):
+        os.remove(SAMPLE_PATH)
+
+    print(f"サンプル：{SAMPLE_PATH} を生成中")
     dates = pd.date_range(end=pd.Timestamp.today(), periods=DATE_RANGE)
     data = []
 
@@ -29,7 +42,7 @@ def make_sample(path: str, rows: int = ROWS):
         ]
     }
 
-    for i in range(rows):
+    for i in range(ROWS):
         d = np.random.choice(dates)
         date_str = pd.Timestamp(d).strftime("%Y-%m-%d")
 
@@ -72,17 +85,17 @@ def make_sample(path: str, rows: int = ROWS):
         data.append(row)
 
     df = pd.DataFrame(data)
-    with pd.ExcelWriter(path, engine='openpyxl') as writer:
+    with pd.ExcelWriter(SAMPLE_PATH, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
-    print("sample generated")
+    print("サンプル生成完了")
 
 def bench_module(mod_name: str, sample_path: str, out_prefix: str):
-    print(f"\n--- BENCH {mod_name} ---")
+    print(f"\n--- ベンチマーク {mod_name} ---")
     mod = importlib.import_module(mod_name)
     t0 = time.perf_counter()
     res = mod.process_attendance_data(sample_path)
     t1 = time.perf_counter()
-    print(f"process_attendance_data: {t1-t0:.2f}s")
+    print(f"データ処理: {t1-t0:.2f}s")
     out_file = os.path.abspath(f"{out_prefix}_{mod_name}.xlsx")
     t2 = time.perf_counter()
     try:
@@ -123,10 +136,14 @@ def bench_module(mod_name: str, sample_path: str, out_prefix: str):
     except Exception:
         raise
     t3 = time.perf_counter()
-    print(f"format_excel_fast (write): {t3-t2:.2f}s")
-    return (t1-t0, t3-t2, out_file)
+    print(f"書き込み: {t3-t2:.2f}s")
+
+    # 出力ファイルのサイズ（KB）を計算して戻り値に追加
+    file_size_kb = os.path.getsize(out_file) / 1024 if os.path.exists(out_file) else 0.0
+    return (t1-t0, t3-t2, out_file, file_size_kb)
 
 def main():
+    call_set()
     script_path = os.path.abspath(__file__)
     bench_dir = os.path.dirname(script_path)
     project_root = os.path.dirname(bench_dir)
@@ -137,14 +154,15 @@ def main():
 
     os.chdir(bench_dir)
 
-    make_sample(SAMPLE, rows=ROWS)
-    versions = [1, 2, 3, 4, 5, 6, 7]
+    make_sample()
+    # versions = [1,2,3,4,5,6,7,8]
+    versions = [7,8]
     results = {}
 
     for v in versions:
         mod_name = f"MSLdata_check_v{v}"
         try:
-            res = bench_module(mod_name, SAMPLE, "bench_output")
+            res = bench_module(mod_name, SAMPLE_PATH, "bench_op")
             results[mod_name] = res
         except Exception as e:
             print(f"error bench {mod_name}: {e}")
@@ -152,10 +170,11 @@ def main():
             traceback.print_exc()
 
     print("\n=== SUMMARY ===")
+    print(f"PATH: {SAMPLE_PATH}, データ数: {ROWS}, 日数: {DATE_RANGE}, 教室数: {ROOMS}, 講師数: {TEACHERS}")
     for mod_name, metrics in results.items():
         if metrics is not None:
-            t_proc, t_write, of = metrics
-            print(f"{mod_name}: process {t_proc:.2f}s, write {t_write:.2f}s -> {of}")
+            t_proc, t_write, of, file_size_kb = metrics
+            print(f"{mod_name}: 処理 {t_proc:.2f}s, 書き込み {t_write:.2f}s -> {file_size_kb:.2f} KB")
 
 if __name__ == "__main__":
     main()
