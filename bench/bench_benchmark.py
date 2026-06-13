@@ -9,8 +9,8 @@ import numpy as np
 def call_set():
     global mk_sample, VERSIONS
 
-    mk_sample = True
-    # mk_sample = False
+    # mk_sample = True
+    mk_sample = False
 
     # versions = [1,2,3,4,5,6,7,8,9]
     VERSIONS = [7, 8, 9]
@@ -26,7 +26,8 @@ def set_CONSTS(R, D, C, T):
     DATE_RANGE = D
     ROOMS = C
     TEACHERS = T
-    SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
+    # SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
+    SAMPLE_PATH = f"MSLサンプル.xlsx"
 
 def make_sample():
     if os.path.exists(SAMPLE_PATH):
@@ -177,7 +178,8 @@ def main():
             traceback.print_exc()
 
     print("\n=== SUMMARY ===")
-    print(f"PATH: {SAMPLE_PATH}, データ数: {ROWS}, 日数: {DATE_RANGE}, 教室数: {ROOMS}, 講師数: {TEACHERS}")
+    if mk_sample:
+        print(f"PATH: {SAMPLE_PATH}, データ数: {ROWS}, 日数: {DATE_RANGE}, 教室数: {ROOMS}, 講師数: {TEACHERS}")
     for mod_name, metrics in results.items():
         if metrics is not None:
             t_proc, t_write, of, file_size_kb = metrics
