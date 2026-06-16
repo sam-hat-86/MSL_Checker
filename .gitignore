@@ -5,12 +5,12 @@
 .vscode/
 
 # Nuitka build outputs
-/MSLdata_check.build/
-/MSLdata_check.dist/
-/MSLdata_check.onefile-build/
-/nuitka_tmp/
-/nuitka-crash-report.xml
-/MSL_Aggregator.exe
+MSLdata_check.build/
+MSLdata_check.dist/
+MSLdata_check.onefile-build/
+nuitka_tmp/
+nuitka-crash-report.xml
+MSL_Aggregator.exe
 
 # Python caches and compiled artifacts
 __pycache__/
