@@ -86,7 +86,7 @@ def build_command(
         "--assume-yes-for-downloads",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
-        "--enable-plugin=upx",
+        # "--enable-plugin=upx",
         "--remove-output",
         "--no-deployment-flag=self-execution",
         "--nofollow-import-to=unittest",
