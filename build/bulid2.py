@@ -185,6 +185,8 @@ def main() -> int:
     requirements_file = requirements_file_for_version(project_root, version)
 
     exe_name = f"{APP_NAME_BASE}_v{version}"
+    if not is_release:
+        exe_name += "_dev"
 
     print("=== STEP 1: CLEANING ===")
     clean_outputs(project_root, build_dir, exe_name)
