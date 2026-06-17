@@ -113,7 +113,6 @@ def build_command(
         "--onefile",
         "--follow-imports",
         "--enable-plugin=tk-inter",
-        "--mingw64",  # ⬅️ これが正しい公式フラグです。zig の割込みを完全にブロックし GCC (MinGW) を強制します。
         f"--windows-icon-from-ico={project_root / 'build' / ICON_NAME}",
         f"--jobs={max(1, jobs)}",
         "--assume-yes-for-downloads",
