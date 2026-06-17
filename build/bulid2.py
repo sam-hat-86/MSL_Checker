@@ -113,6 +113,7 @@ def build_command(
         "--onefile",
         "--follow-imports",
         "--enable-plugin=tk-inter",
+        "--mingw64",  # ⬅️ これが正しい公式フラグです。zig の割込みを完全にブロックし GCC (MinGW) を強制します。
         f"--windows-icon-from-ico={project_root / 'build' / ICON_NAME}",
         f"--jobs={max(1, jobs)}",
         "--assume-yes-for-downloads",
@@ -122,17 +123,14 @@ def build_command(
         "--no-deployment-flag=self-execution",
     ]
 
-    # 除外設定をベースコマンドに追加
     command.extend(common_exclusions)
 
     if is_release:
-        # リリース用：最適化を最大化し、コンソールは隠す
         command.extend([
             "--lto=yes",
             "--windows-console-mode=disable",
         ])
     else:
-        # 確認用：Cのコンパイル速度を最優先し、エラー特定用にコンソールを強制表示
         command.extend([
             "--lto=no",
             "--windows-console-mode=force",
@@ -216,7 +214,7 @@ def main() -> int:
         print("ビルドはスキップしました（dry-run）。")
         return 0
 
-    print(f"PYTHON 最適化: {'-O (PYTHONOPTIMIZE=1)' if is_release else '標準 (PYTHONOPTIMIZE=0)'}")
+    print(f"PYTHON 最最適化: {'-O (PYTHONOPTIMIZE=1)' if is_release else '標準 (PYTHONOPTIMIZE=0)'}")
     completed = subprocess.run(command, cwd=build_dir, env=env)
     if completed.returncode != 0:
         print("[ERROR] ビルドに失敗しました。")
