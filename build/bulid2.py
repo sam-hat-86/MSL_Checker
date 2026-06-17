@@ -20,9 +20,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MSL Checker を Nuitka でビルドします。")
     parser.add_argument("-v", "--version", help="使用するバージョン番号 (1-9)")
     parser.add_argument(
-        "--release",
-        action="store_true",
-        help="リリースモードでビルドします（指定がない場合は確認用デバッグモード）。",
+        "-m",
+        "--mode",
+        choices=["1", "2", "3", "dev", "pre", "release"],
+        help="ビルドモード (1: dev, 2: pre, 3: release)",
     )
     parser.add_argument(
         "--jobs",
@@ -57,12 +58,17 @@ def prompt_version() -> str:
     return normalize_version(input("番号を入力してください: "))
 
 
-def prompt_build_mode() -> bool:
+def prompt_build_mode() -> str:
     print("ビルドモードを選択してください。")
-    print("  1 -> 確認用（除外最大・コンソール表示・高速ビルド）")
-    print("  2 -> リリース用（除外最大・コンソール非表示・最適化実行）")
+    print("  1 -> dev（LTOなし・コンソール表示・高速ビルド）")
+    print("  2 -> pre（LTOあり・コンソール表示・最適化実行）")
+    print("  3 -> release（LTOあり・コンソール非表示・本番最適化）")
     choice = input("番号を入力してください (既定: 1): ").strip()
-    return choice == "2"
+    if choice == "2":
+        return "pre"
+    if choice == "3":
+        return "release"
+    return "dev"
 
 
 def available_versions(project_root: Path) -> list[str]:
@@ -86,9 +92,8 @@ def build_command(
     script_path: Path,
     exe_name: str,
     jobs: int,
-    is_release: bool,
+    mode: str,
 ) -> list[str]:
-    # どちらのモードでも共通して適用する、最大限の不要モジュール除外リスト
     common_exclusions = [
         "--nofollow-import-to=unittest",
         "--nofollow-import-to=IPython",
@@ -104,6 +109,7 @@ def build_command(
         "--nofollow-import-to=setuptools",
         "--nofollow-import-to=pytest",
         "--nofollow-import-to=numpy.testing",
+        "--nofollow-import-to=tzdata",
     ]
 
     command = [
@@ -124,15 +130,20 @@ def build_command(
 
     command.extend(common_exclusions)
 
-    if is_release:
-        command.extend([
-            "--lto=yes",
-            "--windows-console-mode=disable",
-        ])
-    else:
+    if mode == "dev":
         command.extend([
             "--lto=no",
             "--windows-console-mode=force",
+        ])
+    elif mode == "pre":
+        command.extend([
+            "--lto=yes",
+            "--windows-console-mode=force",
+        ])
+    elif mode == "release":
+        command.extend([
+            "--lto=yes",
+            "--windows-console-mode=disable",
         ])
 
     command.append(str(script_path))
@@ -175,15 +186,26 @@ def main() -> int:
         print("[ERROR] 指定されたバージョンのスクリプトが見つかりません。")
         return 1
 
-    is_release = args.release if args.release else prompt_build_mode()
+    mode = "dev"
+    if args.mode:
+        if args.mode in ("1", "dev"):
+            mode = "dev"
+        elif args.mode in ("2", "pre"):
+            mode = "pre"
+        elif args.mode in ("3", "release"):
+            mode = "release"
+    else:
+        mode = prompt_build_mode()
 
     script_name = f"{SCRIPT_BASE_PREFIX}{version}.py"
     script_path = project_root / "src" / script_name
     requirements_file = requirements_file_for_version(project_root, version)
 
     exe_name = f"{APP_NAME_BASE}_v{version}"
-    if not is_release:
+    if mode == "dev":
         exe_name += "_dev"
+    elif mode == "pre":
+        exe_name += "_pre"
 
     print("=== STEP 1: CLEANING ===")
     clean_outputs(project_root, build_dir, exe_name)
@@ -194,14 +216,18 @@ def main() -> int:
     if BUILD_REQUIREMENTS_FILE.exists():
         print(f"ビルド依存関係: {BUILD_REQUIREMENTS_FILE}")
 
-    print(f"ビルドモード: {'リリース (最適化・コンソール非表示)' if is_release else '確認用 (高速ビルド・コンソール表示)'}")
-    print("不要モジュール除外設定: 最大化（両モード共通）")
-    print(f"LTO: {'有効' if is_release else '無効'}")
+    mode_descriptions = {
+        "dev": "dev (LTOなし / コンソール表示)",
+        "pre": "pre (LTOあり / コンソール表示)",
+        "release": "release (LTOあり / コンソール非表示)",
+    }
+    print(f"ビルドモード: {mode_descriptions[mode]}")
+    print("不要モジュール除外設定: 最大化（全モード共通）")
 
-    command = build_command(project_root, script_path, exe_name, args.jobs, is_release)
+    command = build_command(project_root, script_path, exe_name, args.jobs, mode)
 
     env = os.environ.copy()
-    env["PYTHONOPTIMIZE"] = "1" if is_release else "0"
+    env["PYTHONOPTIMIZE"] = "1" if mode in ("pre", "release") else "0"
 
     if getattr(args, "dry_run", False):
         print()
@@ -213,7 +239,7 @@ def main() -> int:
         print("ビルドはスキップしました（dry-run）。")
         return 0
 
-    print(f"PYTHON 最最適化: {'-O (PYTHONOPTIMIZE=1)' if is_release else '標準 (PYTHONOPTIMIZE=0)'}")
+    print(f"PYTHON 最最適化: {'-O (PYTHONOPTIMIZE=1)' if mode in ('pre', 'release') else '標準 (PYTHONOPTIMIZE=0)'}")
     completed = subprocess.run(command, cwd=build_dir, env=env)
     if completed.returncode != 0:
         print("[ERROR] ビルドに失敗しました。")
