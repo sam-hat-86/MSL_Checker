@@ -159,7 +159,7 @@ def load_sheet_preserve_extra_columns(path: str, sheet_index: int = 1) -> pl.Dat
 def get_jp_weekday(dt_obj):
     return ["月", "火", "水", "木", "金", "土", "日"][dt_obj.weekday()]
 
-def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str], dict[str, int], dict[str, int]]:
+def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, str, str, str, list[str], list[str], dict[str, int], dict[str, int], dict[str, str]]:
     progress("出欠データの解析開始")
     df = load_sheet_preserve_extra_columns(input_file, sheet_index=1)
     cols = df.columns
@@ -228,6 +228,8 @@ def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFra
             md, xd = row["min_dt"], row["max_dt"]
             if md and xd: week_period_by_week_number[str(row["week_num"])] = f"{md.strftime('%Y/%m/%d')}({get_jp_weekday(md)}) ～ {xd.strftime('%Y/%m/%d')}({get_jp_weekday(xd)})"
 
+    global_rename_map = {}
+
     def aggregate_and_pivot(metrics_df: pl.DataFrame):
         aggregated = metrics_df.group_by(["担当講師N0", "担当講師名", "教室", "week_num"]).agg(
             pl.len().alias("授業数"), pl.col("hw_pages").sum().alias("宿題合計"),
@@ -256,10 +258,11 @@ def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFra
         week_labels = []
         for i, w in enumerate(week_nums, start=1):
             desired_order.extend([f"授業数_{w}", f"宿題平均_{w}", f"ラップ回数_{w}", f"ラップ率_{w}", f"テスト回数_{w}", f"テスト率_{w}"])
-            rename_map[f"授業数_{w}"], rename_map[f"宿題平均_{w}"], rename_map[f"ラップ回数_{w}"] = f"授業{i}", f"平均HW{i}", f"Lap数{i}"
-            rename_map[f"ラップ率_{w}"], rename_map[f"テスト回数_{w}"], rename_map[f"テスト率_{w}"] = f"Lap％{i}", f"テスト数{i}", f"テスト％{i}"
+            rename_map[f"授業数_{w}"], rename_map[f"宿題平均_{w}"], rename_map[f"ラップ回数_{w}"] = f"授業{i}", f"平均HW{i}", f"Lap実施数{i}"
+            rename_map[f"ラップ率_{w}"], rename_map[f"テスト回数_{w}"], rename_map[f"テスト率_{w}"] = f"Lap％{i}", f"テスト実施数{i}", f"テスト％{i}"
             week_labels.append(week_period_by_week_number.get(str(w), f"Week {i}"))
 
+        global_rename_map.update(rename_map)
         exist_cols = [c for c in desired_order if c in pivot_df.columns]
         return pivot_df.select(exist_cols).rename({k: v for k, v in rename_map.items() if k in exist_cols}).sort(["教室", "No"]), week_labels
 
@@ -282,16 +285,13 @@ def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFra
     classroom_summary_df = get_summary(attendance_metrics_df)
     excluded_classroom_summary_df = get_summary(excluded_df)
 
-    # --- 高速Autofit用の文字数事前集計処理 (全集計と除外集計の両方を計算) ---
     progress("Polarsネイティブで全列の最大文字長(Autofit用)を一斉並列計算中...")
 
-    # 全集計シート用の列幅マッピング
     max_lens_all = pivot_df_all.select([
         pl.col(c).cast(pl.Utf8).str.len_chars().max().fill_null(0).alias(c)
         for c in pivot_df_all.columns
     ]).row(0, named=True)
 
-    # 除外集計シート用の列幅マッピング
     max_lens_excl = excluded_pivot_df.select([
         pl.col(c).cast(pl.Utf8).str.len_chars().max().fill_null(0).alias(c)
         for c in excluded_pivot_df.columns
@@ -300,11 +300,10 @@ def process_attendance_data( input_file: str,) -> tuple[pl.DataFrame, pl.DataFra
     del df, attendance_metrics_df, excluded_df
     gc.collect()
 
-    # 戻り値の末尾に2つの文字数マッピング辞書を追加
     return (
         pivot_df_all, excluded_pivot_df, classroom_summary_df, excluded_classroom_summary_df,
         output_file, date_range_str, sheet_name, week_period_labels_all, week_period_labels_excl,
-        max_lens_all, max_lens_excl
+        max_lens_all, max_lens_excl, global_rename_map
     )
 
 def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> None:
@@ -327,6 +326,7 @@ def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> 
     tk.Button(frm, text="閉じる", command=dlg.destroy, font=dlg_font).pack(side="right")
     try: dlg.transient(parent); dlg.grab_set(); dlg.wait_window()
     except Exception: pass
+
 def format_excel_fast(
     all_pivot_df: pl.DataFrame,
     excluded_pivot_df: pl.DataFrame,
@@ -337,17 +337,17 @@ def format_excel_fast(
     sheet_name: str,
     week_period_labels_all: list[str],
     week_period_labels_excl: list[str],
-    max_lens_all: dict[str, int],   # 引数を追加
-    max_lens_excl: dict[str, int]   # 引数を追加
+    max_lens_all: dict[str, int],
+    max_lens_excl: dict[str, int],
+    global_rename_map: dict[str, str]
 ):
     progress("xlsxwriter単一ストリームによる高速レイアウト処理を開始")
-    # 常時メモリに溜め込まず、順次ディスクへフラッシュする定数メモリモードを有効化
     workbook = xlsxwriter.Workbook(output_file, {'constant_memory': True})
     ud_font = select_font()
 
     fmt_title = workbook.add_format({"font_name": ud_font, "bold": True, "font_size": 11, "align": "left", "valign": "vcenter"})
     fmt_title_center = workbook.add_format({"font_name": ud_font, "bold": True, "font_size": 11, "align": "center", "valign": "vcenter", "bg_color": "#E8F6F3", "border": 1})
-    fmt_header = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#D3D3D3", "bold": True, "align": "center", "valign": "vcenter"})
+    fmt_header = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#D3D3D3", "bold": True, "align": "left", "valign": "vcenter"})
     fmt_white = workbook.add_format({"font_name": ud_font, "border": 1, "valign": "vcenter"})
     fmt_khaki = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#F0E68C", "valign": "vcenter"})
     fmt_lavender = workbook.add_format({"font_name": ud_font, "border": 1, "bg_color": "#E6E6FA", "valign": "vcenter"})
@@ -355,9 +355,10 @@ def format_excel_fast(
     fmt_cond_orange = workbook.add_format({"font_name": ud_font, "bg_color": "#FFA500", "font_color": "#000000"})
     fmt_cond_firebrick = workbook.add_format({"font_name": ud_font, "bg_color": "#B22222", "font_color": "#FFFFFF"})
 
-    # 内包関数の引数に max_lens_sheet を追加し、シートごとに切り替えられるように設計
+    reverse_map = {v: k for k, v in global_rename_map.items()}
+
     def write_sheet_v7(sheet_df: pl.DataFrame, summary_df: pl.DataFrame, week_period_labels: list[str], sheet_title: str, max_lens_sheet: dict[str, int]):
-        progress(f"シート [{sheet_title}] のデータ一括合成中...")
+        progress(f"シート [{sheet_title}] のデータ合成中...")
         headers = list(sheet_df.columns)
         max_col, nrows = len(headers) - 1, sheet_df.height
         header_row, data_start = 1, 2
@@ -366,51 +367,61 @@ def format_excel_fast(
         for col in headers:
             try: s = sheet_df.get_column(col)
             except Exception: s = pl.Series(col, [None] * nrows)
+
+            orig_key = reverse_map.get(col, col)
             if col == "No":
                 vals = [None if v is None else str(v).strip() for v in s.to_list()]
                 col_values[col] = [None if v is None else (v.lstrip("0") if v.lstrip("0") != "" else v) for v in vals]
-            elif any(k in col for k in ("授業", "Lap数", "テスト数", "総授業数")):
+            elif any(k in orig_key for k in ("授業数", "ラップ回数", "テスト回数", "総授業数")):
                 col_values[col] = [0.0 if v is None else float(v) for v in s.cast(pl.Float64, strict=False).fill_null(0).to_list()]
-            elif ("平均" in col) or ("％" in col) or ("率" in col):
+            elif any(k in orig_key for k in ("平均", "％", "率")):
                 col_values[col] = [None if v is None else float(v) for v in s.cast(pl.Float64, strict=False).to_list()]
             else:
                 col_values[col] = [None if v is None else str(v) for v in s.to_list()]
 
         lesson_nums = []
         for h in headers:
-            m = re.search(r"授業(\d+)", str(h))
+            orig_h = reverse_map.get(h, h)
+            m = re.search(r"授業数_(\d+)", str(orig_h))
             if m:
                 lesson_nums.append(int(m.group(1)))
         lesson_nums = sorted(list(set(lesson_nums)))
+
         for i in lesson_nums:
-            if f"授業{i}" not in col_values: continue
-            for idx, lv in enumerate(col_values[f"授業{i}"]):
+            c_class = global_rename_map.get(f"授業数_{i}", "")
+            if not c_class or c_class not in col_values: continue
+            for idx, lv in enumerate(col_values[c_class]):
                 if lv == 0 or lv == 0.0:
-                    for c in [f"平均HW{i}", f"Lap数{i}", f"Lap％{i}", f"テスト数{i}", f"テスト％{i}"]:
-                        if c in col_values: col_values[c][idx] = None
+                    for k in (f"宿題平均_{i}", f"ラップ回数_{i}", f"ラップ率_{i}", f"テスト回数_{i}", f"テスト率_{i}"):
+                        c_display = global_rename_map.get(k, "")
+                        if c_display in col_values: col_values[c_display][idx] = None
 
         if nrows > 0:
             row_classrooms = col_values.get("教室", [""] * nrows)
             unique_classrooms = sorted(list(set([v for v in row_classrooms if v])))
             final_col_values: dict[str, list] = {c: [] for c in headers}
 
-            # 全体平均行
             final_col_values["No"].append("0"); final_col_values["氏名"].append("AVG"); final_col_values["教室"].append("FS")
             final_col_values["総授業数"].append(sum(v for v in col_values["総授業数"] if isinstance(v, (int, float))))
             for i in lesson_nums:
-                w_lessons = sum(v for v in col_values[f"授業{i}"] if isinstance(v, (int, float)))
-                final_col_values[f"授業{i}"].append(w_lessons)
-                if w_lessons == 0:
-                    for c in [f"Lap％{i}", f"テスト％{i}", f"平均HW{i}"]: final_col_values[c].append(None)
-                    for c in [f"Lap数{i}", f"テスト数{i}"]: final_col_values[c].append(0.0)
-                else:
-                    wl, wt = sum(v for v in col_values[f"Lap数{i}"] if isinstance(v, (int, float))), sum(v for v in col_values[f"テスト数{i}"] if isinstance(v, (int, float)))
-                    final_col_values[f"Lap数{i}"].append(wl); final_col_values[f"テスト数{i}"].append(wt)
-                    final_col_values[f"Lap％{i}"].append(wl / w_lessons); final_col_values[f"テスト％{i}"].append(wt / w_lessons)
-                    thw = sum(col_values[f"平均HW{i}"][idx]*col_values[f"授業{i}"][idx] for idx in range(nrows) if isinstance(col_values[f"授業{i}"][idx], (int, float)) and isinstance(col_values[f"平均HW{i}"][idx], (int, float)))
-                    final_col_values[f"平均HW{i}"].append(round(thw / w_lessons, 1))
+                k_class, k_lap, k_test, k_lap_r, k_test_r, k_hw = f"授業数_{i}", f"ラップ回数_{i}", f"テスト回数_{i}", f"ラップ率_{i}", f"テスト率_{i}", f"宿題平均_{i}"
+                c_class, c_lap, c_test, c_lap_r, c_test_r, c_hw = [global_rename_map.get(k, "") for k in (k_class, k_lap, k_test, k_lap_r, k_test_r, k_hw)]
 
-            # 教室別ループ
+                if not (c_class and c_lap and c_test and c_lap_r and c_test_r and c_hw): continue
+
+                w_lessons = sum(v for v in col_values[c_class] if isinstance(v, (int, float)))
+                final_col_values[c_class].append(w_lessons)
+                if w_lessons == 0:
+                    for c in [c_lap_r, c_test_r, c_hw]: final_col_values[c].append(None)
+                    for c in [c_lap, c_test]: final_col_values[c].append(0.0)
+                else:
+                    wl = sum(v for v in col_values[c_lap] if isinstance(v, (int, float)))
+                    wt = sum(v for v in col_values[c_test] if isinstance(v, (int, float)))
+                    final_col_values[c_lap].append(wl); final_col_values[c_test].append(wt)
+                    final_col_values[c_lap_r].append(wl / w_lessons); final_col_values[c_test_r].append(wt / w_lessons)
+                    thw = sum(col_values[c_hw][idx]*col_values[c_class][idx] for idx in range(nrows) if isinstance(col_values[c_class][idx], (int, float)) and isinstance(col_values[c_hw][idx], (int, float)))
+                    final_col_values[c_hw].append(round(thw / w_lessons, 1))
+
             for target_cls in unique_classrooms:
                 cls_indices = [idx for idx, cls in enumerate(row_classrooms) if cls == target_cls]
                 try:
@@ -423,18 +434,24 @@ def format_excel_fast(
                 final_col_values["総授業数"].append(cls_total_lessons)
 
                 for i in lesson_nums:
-                    w_lessons_cls = sum(col_values[f"授業{i}"][idx] for idx in cls_indices if isinstance(col_values[f"授業{i}"][idx], (int, float)))
-                    final_col_values[f"授業{i}"].append(w_lessons_cls)
+                    k_class, k_lap, k_test, k_lap_r, k_test_r, k_hw = f"授業数_{i}", f"ラップ回数_{i}", f"テスト回数_{i}", f"ラップ率_{i}", f"テスト率_{i}", f"宿題平均_{i}"
+                    c_class, c_lap, c_test, c_lap_r, c_test_r, c_hw = [global_rename_map.get(k, "") for k in (k_class, k_lap, k_test, k_lap_r, k_test_r, k_hw)]
+
+                    # 修正：ここが「&&」になっていたタイポを、正しいPythonの「and」に修正
+                    if not (c_class and c_lap and c_test and c_lap_r and c_test_r and c_hw): continue
+
+                    w_lessons_cls = sum(col_values[c_class][idx] for idx in cls_indices if isinstance(col_values[c_class][idx], (int, float)))
+                    final_col_values[c_class].append(w_lessons_cls)
                     if w_lessons_cls == 0:
-                        for c in [f"Lap％{i}", f"テスト％{i}", f"平均HW{i}"]: final_col_values[c].append(None)
-                        for c in [f"Lap数{i}", f"テスト数{i}"]: final_col_values[c].append(0.0)
+                        for c in [c_lap_r, c_test_r, c_hw]: final_col_values[c].append(None)
+                        for c in [c_lap, c_test]: final_col_values[c].append(0.0)
                     else:
-                        wl_c = sum(col_values[f"Lap数{i}"][idx] for idx in cls_indices if isinstance(col_values[f"Lap数{i}"][idx], (int, float)))
-                        wt_c = sum(col_values[f"テスト数{i}"][idx] for idx in cls_indices if isinstance(col_values[f"テスト数{i}"][idx], (int, float)))
-                        final_col_values[f"Lap数{i}"].append(wl_c); final_col_values[f"テスト数{i}"].append(wt_c)
-                        final_col_values[f"Lap％{i}"].append(wl_c / w_lessons_cls); final_col_values[f"テスト％{i}"].append(wt_c / w_lessons_cls)
-                        thw_c = sum(col_values[f"平均HW{i}"][idx]*col_values[f"授業{i}"][idx] for idx in cls_indices if isinstance(col_values[f"授業{i}"][idx], (int, float)) and isinstance(col_values[f"平均HW{i}"][idx], (int, float)))
-                        final_col_values[f"平均HW{i}"].append(round(thw_c / w_lessons_cls, 1))
+                        wl_c = sum(col_values[c_lap][idx] for idx in cls_indices if isinstance(col_values[c_lap][idx], (int, float)))
+                        wt_c = sum(col_values[c_test][idx] for idx in cls_indices if isinstance(col_values[c_test][idx], (int, float)))
+                        final_col_values[c_lap].append(wl_c); final_col_values[c_test].append(wt_c)
+                        final_col_values[c_lap_r].append(wl_c / w_lessons_cls); final_col_values[c_test_r].append(wt_c / w_lessons_cls)
+                        thw_c = sum(col_values[c_hw][idx]*col_values[c_class][idx] for idx in cls_indices if isinstance(col_values[c_class][idx], (int, float)) and isinstance(col_values[c_hw][idx], (int, float)))
+                        final_col_values[c_hw].append(round(thw_c / w_lessons_cls, 1))
 
                 for idx in cls_indices:
                     for col in headers: final_col_values[col].append(col_values[col][idx])
@@ -446,9 +463,7 @@ def format_excel_fast(
 
         worksheet = workbook.add_worksheet(sheet_title)
 
-        # 【超高速Autofit + レイアウト一括制御】
         for col_idx, col_name in enumerate(headers):
-            # 修正：Pylanceエラーの原因だった未定義変数を、引数のマッピング参照（O(1)）に修正
             max_val_len = max_lens_sheet.get(col_name, 0)
             max_len = max(max_val_len, len(col_name))
             if col_idx == 0: col_width = max(max_len * 2.0, 6)
@@ -465,20 +480,19 @@ def format_excel_fast(
                 elif offset in (3, 5): worksheet.set_column(col_idx, col_idx, col_width, fmt_white_pct)
                 else: worksheet.set_column(col_idx, col_idx, col_width, fmt_white)
 
-        # 1行ずつデータを辞書から引き出して横方向に一括配置（これですべての列が正常に出現します）
-        for r_idx in range(nrows):
-            row_data = [col_values[col_name][r_idx] for col_name in headers]
-            # data_start (2行目) から順に下へ向かって行データを書き出す
-            worksheet.write_row(data_start + r_idx, 0, row_data)
-
         try: worksheet.merge_range(0, 0, 0, min(3, max_col), date_range_str, fmt_title)
         except Exception: worksheet.write(0, 0, date_range_str, fmt_title)
         worksheet.set_row(0, 20)
-        worksheet.write_row(header_row, 0, headers, fmt_header)
 
         for i, period_str in enumerate(week_period_labels):
             start_col = 4 + i * 6
             if start_col + 5 <= max_col: worksheet.merge_range(0, start_col, 0, start_col + 5, period_str, fmt_title_center)
+
+        worksheet.write_row(header_row, 0, headers, fmt_header)
+
+        for r_idx in range(nrows):
+            row_data = [col_values[col_name][r_idx] for col_name in headers]
+            worksheet.write_row(data_start + r_idx, 0, row_data)
 
         last_row = data_start + nrows - 1
         worksheet.autofilter(header_row, 0, last_row, max_col)
@@ -492,7 +506,7 @@ def format_excel_fast(
         worksheet.freeze_panes(data_start, 4)
 
         worksheet.set_portrait()
-        worksheet.set_paper(9) # A4
+        worksheet.set_paper(9)
         margin_inch = 1.0 / 2.54
         worksheet.set_margins(left=margin_inch, right=margin_inch, top=margin_inch, bottom=margin_inch)
         worksheet.set_header('', {'margin': 0.5 / 2.54})
@@ -508,18 +522,16 @@ def format_excel_fast(
         worksheet.set_v_pagebreaks(v_breaks)
         worksheet.print_area(0, 0, last_row, max_col)
         worksheet.fit_to_pages(1, 0)
-        progress(f"シート [{sheet_title}] の全レイアウト・印刷設定が一発で完了しました。")
+        progress(f"シート [{sheet_title}] の全レイアウト・印刷設定が完了しました。")
 
-    # 修正：それぞれのシートに対応する辞書（max_lens_all, max_lens_excl）を渡す
     write_sheet_v7(all_pivot_df, classroom_summary_df, week_period_labels_all, "全集計", max_lens_all)
     write_sheet_v7(excluded_pivot_df, excluded_classroom_summary_df, week_period_labels_excl, "除外集計", max_lens_excl)
 
-    progress("Excelブックのクローズ処理中...")
+    progress("Excelブック of クローズ処理中...")
     workbook.close()
     progress("GCを実行中")
     del all_pivot_df, excluded_pivot_df, classroom_summary_df, excluded_classroom_summary_df
     gc.collect()
-
 
 def main():
     enable_windows_dpi_awareness()
@@ -528,13 +540,12 @@ def main():
     root.withdraw()
     try:
         root.attributes("-topmost", True); root.lift(); root.focus_force()
-        input_file = filedialog.askopenfilename(title="集計元のExcelファイルを選択してください", filetypes=[("Excel", "*.xlsx"), ("すべてのファイル", "*.*")], parent=root)
+        input_file = filedialog.askopenfilename(title="集計元のExcelファイルを選択してください", filetypes=[("集計データ","scube2-lesson-result_*.xlsx"), ("Excel", "*.xlsx"), ("すべてのファイル", "*.*")], parent=root)
         root.attributes("-topmost", False)
         if not input_file: return
 
         total_start_time = time.perf_counter()
 
-        # 修正：戻り値に増えた辞書（max_lens_all, max_lens_excl）を正しくアンパックして受け取る
         (
             all_pivot_df,
             excluded_pivot_df,
@@ -546,10 +557,10 @@ def main():
             week_period_labels_all,
             week_period_labels_excl,
             max_lens_all,
-            max_lens_excl
+            max_lens_excl,
+            global_rename_map
         ) = process_attendance_data(input_file)
 
-        # 修正：引数のミスマッチ（9個必要なところに足りていなかった問題）を11個に増やして完全適合
         format_excel_fast(
             all_pivot_df,
             excluded_pivot_df,
@@ -561,7 +572,8 @@ def main():
             week_period_labels_all,
             week_period_labels_excl,
             max_lens_all,
-            max_lens_excl
+            max_lens_excl,
+            global_rename_map
         )
 
         total_elapsed = time.perf_counter() - total_start_time
@@ -578,4 +590,5 @@ def main():
         try: root.attributes("-topmost", True); show_error_dialog("処理中にエラーが発生しました", tb, parent=root)
         except Exception: messagebox.showerror("エラー", f"処理中にエラーが発生しました:\n{e}", parent=root)
     finally: root.destroy()
+
 if __name__ == "__main__": main()
