@@ -11,14 +11,14 @@ from pathlib import Path
 
 APP_NAME_BASE = "MSL集計ソフト"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
-DEFAULT_VERSION = "9"
+DEFAULT_VERSION = "10"
 ICON_NAME = "logo.ico"
 BUILD_REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements-build.txt"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MSL Checker を Nuitka でビルドします。")
-    parser.add_argument("-v", "--version", help="使用するバージョン番号 (1-9)")
+    parser.add_argument("-v", "--version", help="使用するバージョン番号 (1-10)")
     parser.add_argument(
         "-m",
         "--mode",
