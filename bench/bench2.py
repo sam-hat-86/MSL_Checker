@@ -221,6 +221,8 @@ def main():
             traceback.print_exc()
 
     print("\n=== SUMMARY ===")
+    print(f"サンプル: {os.path.basename(SAMPLE_PATH)}")
+    print(f"期間: {DATE_RANGE}日, 教室数: {ROOMS}, 講師数: {TEACHERS}, 行数: {ROWS:,}")
 
     for mod_name,(proc,write,_,size) in results.items():
         total=proc+write
