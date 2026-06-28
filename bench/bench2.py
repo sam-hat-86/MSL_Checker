@@ -64,7 +64,7 @@ def make_sample():
     dates=np.datetime64("2026-01-01")+rng.integers(0,30,ROWS).astype("timedelta64[D]")
     attendance=rng.choice(["出席","欠席"],ROWS,p=[0.9,0.1])
     teachers=np.char.add("講師",rng.integers(1,16,ROWS).astype(str))
-    teacher_no=rng.integers(1,10000,ROWS)
+    teacher_no=0
     rooms=np.char.add("教室",rng.choice(list("ABCDEFGHIJKLMNO"),ROWS))
     grades=rng.choice(["小1","小2","小3","中1","中2","中3","高1","高2","高3"],ROWS)
     subjects=rng.choice(["国語","英語","数学","理科","社会"],ROWS)
