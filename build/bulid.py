@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME_BASE = "MSL集計ソフト"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
-DEFAULT_VERSION = "11"
+DEFAULT_VERSION = "10"
 ICON_NAME = "logo.ico"
 BUILD_REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements-build.txt"
 
@@ -29,87 +29,75 @@ def parse_args() -> argparse.Namespace:
         "--jobs",
         type=int,
         default=os.cpu_count() or 6,
-        help="Nuitka の並列ジョブ数 (既定: CPU コア数)",
+        help="Nuitka の並列ジョブ数 (既定: CPUコア数)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="除外されるモジュール一覧を表示してビルドを実行しません（安全確認用）。",
+        help="実際にビルドせず、生成されるコマンドのみを確認します",
     )
     return parser.parse_args()
 
 
-def normalize_version(raw_version: str | None) -> str:
-    if raw_version is None or raw_version.strip() == "":
-        return DEFAULT_VERSION
-
-    version = raw_version.strip()
-    if version.lower().startswith("v"):
-        version = version[1:]
-
-    if not version.isdigit():
-        raise ValueError("数字を入力してください。")
-
-    return version
+def normalize_version(s: object) -> str:
+    if s is None: return ""
+    return str(s).strip()
 
 
 def prompt_version() -> str:
-    print("使用するバージョンを入力してください。")
-    return normalize_version(input("番号を入力してください: "))
+    v = input(f"ビルドするバージョン番号を入力してください (既定: {DEFAULT_VERSION}): ").strip()
+    return v if v else DEFAULT_VERSION
 
 
 def prompt_build_mode() -> str:
-    print("ビルドモードを選択してください。")
-    print("  1 -> dev（LTOなし・コンソール表示・高速ビルド）")
-    print("  2 -> pre（LTOあり・コンソール表示・最適化実行）")
-    print("  3 -> release（LTOあり・コンソール非表示・本番最適化）")
-    choice = input("番号を入力してください (既定: 1): ").strip()
-    if choice == "2":
-        return "pre"
-    if choice == "3":
-        return "release"
-    return "dev"
+    print("ビルドモードを選択してください:")
+    print("  1: dev (LTOなし / コンソール強制表示)")
+    print("  2: pre (LTOあり / コンソール強制表示)")
+    print("  3: release (LTOあり / コンソール非表示) 【本番用】")
+    choice = input("選択 (1-3, 既定: 3): ").strip()
+    if choice == "1": return "dev"
+    if choice == "2": return "pre"
+    return "release"
 
 
 def available_versions(project_root: Path) -> list[str]:
     src_dir = project_root / "src"
-    versions: list[str] = []
-    if not src_dir.exists():
-        return versions
-    for path in src_dir.glob(f"{SCRIPT_BASE_PREFIX}*.py"):
-        match = re.fullmatch(rf"{re.escape(SCRIPT_BASE_PREFIX)}(\d+)\.py", path.name)
-        if match:
-            versions.append(match.group(1))
-    return sorted(set(versions), key=int)
+    if not src_dir.exists(): return []
+    versions = []
+    for f in src_dir.glob(f"{SCRIPT_BASE_PREFIX}*.py"):
+        m = re.match(rf"{SCRIPT_BASE_PREFIX}(\d+)\.py", f.name)
+        if m:
+            versions.append(m.group(1))
+    return sorted(versions, key=lambda x: int(x))
 
 
-def requirements_file_for_version(project_root: Path, version: str) -> Path:
-    return project_root / "src" / f"requirements_v{version}.txt"
+def find_requirements_file(project_root: Path, version: str) -> Path | None:
+    req_v = project_root / "src" / f"requirements_v{version}.txt"
+    if req_v.exists(): return req_v
+
+    req_git = project_root / "src" / "requirements_git-act.txt"
+    if req_git.exists(): return req_git
+
+    req_std = project_root / "src" / "requirements.txt"
+    if req_std.exists(): return req_std
+
+    return None
 
 
-def build_command(
-    project_root: Path,
-    script_path: Path,
-    exe_name: str,
-    jobs: int,
-    mode: str,
-) -> list[str]:
+def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: int, mode: str, version: str) -> list[str]:
     common_exclusions = [
+        "--nofollow-import-to=pandas",
+        "--nofollow-import-to=numpy",
+        "--nofollow-import-to=fastexcel",
+        "--nofollow-import-to=polars",
+        "--nofollow-import-to=matplotlib",
+        "--nofollow-import-to=scipy",
+        "--nofollow-import-to=tangowidth",
         "--nofollow-import-to=unittest",
         "--nofollow-import-to=IPython",
         "--nofollow-import-to=notebook",
-        "--nofollow-import-to=matplotlib",
-        "--nofollow-import-to=scipy",
-        "--nofollow-import-to=scipy.stats",
-        "--nofollow-import-to=numba",
-        "--nofollow-import-to=jinja2",
-        "--nofollow-import-to=PIL",
-        "--nofollow-import-to=sqlite3",
-        "--nofollow-import-to=distutils",
-        "--nofollow-import-to=setuptools",
         "--nofollow-import-to=pytest",
-        "--nofollow-import-to=numpy.testing",
-        "--nofollow-import-to=tzdata",
+        "--nofollow-import-to=sqlite3",
     ]
 
     command = [
@@ -119,7 +107,6 @@ def build_command(
         "--onefile",
         "--follow-imports",
         "--enable-plugin=tk-inter",
-        f"--windows-icon-from-ico={project_root / 'build' / ICON_NAME}",
         f"--jobs={max(1, jobs)}",
         "--assume-yes-for-downloads",
         f"--output-dir={project_root}",
@@ -127,6 +114,10 @@ def build_command(
         "--remove-output",
         "--no-deployment-flag=self-execution",
     ]
+
+    ico_path = project_root / 'build' / ICON_NAME
+    if ico_path.exists():
+        command.append(f"--windows-icon-from-ico={ico_path}")
 
     command.extend(common_exclusions)
 
@@ -160,6 +151,11 @@ def clean_outputs(project_root: Path, build_dir: Path, exe_name: str) -> None:
         if target.exists():
             shutil.rmtree(target, ignore_errors=True)
 
+    for suffix in (".build", ".onefile-build"):
+        target = project_root / f"{exe_name}{suffix}"
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+
 
 def main() -> int:
     args = parse_args()
@@ -169,12 +165,12 @@ def main() -> int:
     versions = available_versions(project_root)
 
     if not versions:
-        print("[ERROR] 対象のバージョンファイルが見つかりません。")
+        print("[ERROR] 対象のバージョンファイルが見つかりません。 (src/MSLdata_check_v*.py)")
         return 1
 
-    print("使用できるバージョン:")
-    for version in versions:
-        print(f"  {version} -> v{version}")
+    print("検出されたバージョン一覧:")
+    for v in versions:
+        print(f"  {v} -> v{v}")
 
     try:
         version = normalize_version(args.version) if args.version is not None else prompt_version()
@@ -183,10 +179,10 @@ def main() -> int:
         return 1
 
     if version not in versions:
-        print("[ERROR] 指定されたバージョンのスクリプトが見つかりません。")
+        print(f"[ERROR] 指定されたバージョン v{version} のスクリプトが見つかりません。")
         return 1
 
-    mode = "dev"
+    mode = "release"
     if args.mode:
         if args.mode in ("1", "dev"):
             mode = "dev"
@@ -199,7 +195,7 @@ def main() -> int:
 
     script_name = f"{SCRIPT_BASE_PREFIX}{version}.py"
     script_path = project_root / "src" / script_name
-    requirements_file = requirements_file_for_version(project_root, version)
+    requirements_file = find_requirements_file(project_root, version)
 
     exe_name = f"{APP_NAME_BASE}_v{version}"
     if mode == "dev":
@@ -207,55 +203,55 @@ def main() -> int:
     elif mode == "pre":
         exe_name += "_pre"
 
-    print("=== STEP 1: CLEANING ===")
+    print("\n=== STEP 1: CLEANING ===")
     clean_outputs(project_root, build_dir, exe_name)
 
-    print("=== STEP 2: NUITKA BUILD ===")
-    if requirements_file.exists():
-        print(f"使用する依存関係: {requirements_file}")
+    print("\n=== STEP 2: NUITKA BUILD ===")
+    if requirements_file and requirements_file.exists():
+        print(f"解析されたパッケージ依存関係: {requirements_file}")
     if BUILD_REQUIREMENTS_FILE.exists():
-        print(f"ビルド依存関係: {BUILD_REQUIREMENTS_FILE}")
+        print(f"ビルド支援依存関係: {BUILD_REQUIREMENTS_FILE}")
 
     mode_descriptions = {
-        "dev": "dev (LTOなし / コンソール表示)",
-        "pre": "pre (LTOあり / コンソール表示)",
-        "release": "release (LTOあり / コンソール非表示)",
+        "dev": "dev (LTOなし / コンソール強制表示 / 高速ビルド)",
+        "pre": "pre (LTOあり / コンソール強制表示 / 最適化実行)",
+        "release": "release (LTOあり / コンソール非表示 / 本番配布用)",
     }
-    print(f"ビルドモード: {mode_descriptions[mode]}")
-    print("不要モジュール除外設定: 最大化（全モード共通）")
+    print(f"ビルドターゲットモード: {mode_descriptions[mode]}")
 
-    command = build_command(project_root, script_path, exe_name, args.jobs, mode)
+    command = build_command(project_root, script_path, exe_name, args.jobs, mode, version)
 
     env = os.environ.copy()
     env["PYTHONOPTIMIZE"] = "1" if mode in ("pre", "release") else "0"
 
-    if getattr(args, "dry_run", False):
+    if args.dry_run:
         print()
-        print("=== DRY RUN ===")
-        print("生成予定の Nuitka コマンド:")
+        print("=== DRY RUN MODE ===")
+        print("生成されるコマンド:")
         print(" ".join(command))
-        print(f"環境: PYTHONOPTIMIZE={env.get('PYTHONOPTIMIZE')}")
-        print()
-        print("ビルドはスキップしました（dry-run）。")
+        print("==========================================")
         return 0
 
-    print(f"PYTHON 最最適化: {'-O (PYTHONOPTIMIZE=1)' if mode in ('pre', 'release') else '標準 (PYTHONOPTIMIZE=0)'}")
-    completed = subprocess.run(command, cwd=build_dir, env=env)
-    if completed.returncode != 0:
-        print("[ERROR] ビルドに失敗しました。")
-        return completed.returncode
+    print("コンパイルを実行しています。数分かかる場合があります...")
+    try:
+        result = subprocess.run(command, shell=True)
+        if result.returncode != 0:
+            print("[エラー] Nuitkaコンパイル中に不具合が発生しました。")
+            return 1
+    except Exception as e:
+        print(f"[エラー] ビルド実行中に例外が発生しました: {e}")
+        return 1
 
     output_exe = project_root / f"{exe_name}.exe"
-    print()
-    print("=== STEP 3: RESULT ===")
+    print("\n==========================================")
     if output_exe.exists():
-        print("[SUCCESS] ビルドが完了しました。")
+        print("[SUCCESS] ビルドが正常に完了しました！")
         print(f"保存先: {output_exe}")
         return 0
 
-    print("[ERROR] ビルドに失敗しました。")
+    print("[エラー] EXEファイルの生成が確認できませんでした。")
     return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
