@@ -13,7 +13,7 @@ def call_set():
     mk_sample = False
 
     # versions = [1,2,3,4,5,6,7,8,9]
-    VERSIONS = [7, 8, 9]
+    VERSIONS = ["11", "12", "13"]
 
     # set_CONSTS(10000, 30, 5, 10)
     # set_CONSTS(20000, 30, 10, 10)
@@ -26,8 +26,8 @@ def set_CONSTS(R, D, C, T):
     DATE_RANGE = D
     ROOMS = C
     TEACHERS = T
-    # SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
-    SAMPLE_PATH = f"MSLサンプル.xlsx"
+    SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
+    # SAMPLE_PATH = f"MSLサンプル.xlsx"
 
 def make_sample():
     if os.path.exists(SAMPLE_PATH):
