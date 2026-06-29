@@ -7,7 +7,7 @@ import numpy as np
 import xlsxwriter
 
 MIN_VERSION=12
-MAX_VERSION=13
+MAX_VERSION=14
 
 def call_set():
     global mk_sample, VERSIONS
@@ -39,36 +39,39 @@ def print_progress(current,total,width=40):
 
 def make_sample():
     print("高速サンプル生成開始")
-    wb=xlsxwriter.Workbook(SAMPLE_PATH,{"constant_memory":True})
+    wb=xlsxwriter.Workbook(SAMPLE_PATH)
     ws=wb.add_worksheet()
 
+# ヘッダー行設定
     headers=[
         "日付","出欠","担当講師名","担当講師N0",
         "教室","学年","科目"
     ]
+    for i in range(1,2):
+        headers.append(f"ラップ{i}（分子）")
+        headers.append(f"確認{i}（分子）")
     for i in range(1,6):
         headers+=[
             f"宿題名_{i}",
             f"宿題開始ページ_{i}",
             f"宿題終了ページ_{i}"
         ]
-    for i in range(1,6):
-        headers.append(f"ラップ{i}（分子）")
-        headers.append(f"確認{i}（分子）")
 
     for c,h in enumerate(headers):
         ws.write(0,c,h)
 
     rng=np.random.default_rng()
 
+# 基本情報設定
     dates=np.datetime64("2026-01-01")+rng.integers(0,30,ROWS).astype("timedelta64[D]")
-    attendance=rng.choice(["出席","欠席"],ROWS,p=[0.9,0.1])
+    attendance=rng.choice(["出席","欠席"],ROWS,p=[0.85,0.15])
     teachers=np.char.add("講師",rng.integers(1,16,ROWS).astype(str))
-    teacher_no=0
+    teacher_no=np.zeros(ROWS,dtype=np.int32)
     rooms=np.char.add("教室",rng.choice(list("ABCDEFGHIJKLMNO"),ROWS))
     grades=rng.choice(["小1","小2","小3","中1","中2","中3","高1","高2","高3"],ROWS)
     subjects=rng.choice(["国語","英語","数学","理科","社会"],ROWS)
 
+# データ行設定
     cols=[
         dates.astype(str),
         attendance,
@@ -78,19 +81,22 @@ def make_sample():
         grades,
         subjects
     ]
+# テスト実施データ
+    vals=np.array([1,None],dtype=object)
+    for _ in range(5):
+        # Lap
+        cols.append(rng.choice(vals,ROWS,p=[0.6,0.4]))
+        # 確認
+        cols.append(rng.choice(vals,ROWS,p=[0.7,0.3]))
 
+# 宿題データ
     hw_names=["単語帳","問題集","Lodestar","BUILDER","Leap"]
-
     for _ in range(5):
         cols.append(rng.choice(hw_names,ROWS))
         s=rng.integers(1,30,ROWS)
         cols.append(s)
         cols.append(s+rng.integers(0,3,ROWS))
 
-    vals=np.array([1,0,None],dtype=object)
-    for _ in range(5):
-        cols.append(rng.choice(vals,ROWS,p=[0.6,0.3,0.1]))
-        cols.append(rng.choice(vals,ROWS,p=[0.7,0.2,0.1]))
 
     for c,data in enumerate(cols):
         ws.write_column(1,c,data.tolist())
