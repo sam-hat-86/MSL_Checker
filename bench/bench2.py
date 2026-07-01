@@ -9,6 +9,9 @@ import xlsxwriter
 MIN_VERSION=12
 MAX_VERSION=14
 
+TEST_COUNT=2
+HW_COUNT=5
+
 def call_set():
     global mk_sample, VERSIONS
 
@@ -17,10 +20,10 @@ def call_set():
     VERSIONS=[str(v) for v in range(MIN_VERSION,MAX_VERSION+1)]
 
     # set_CONSTS(10000, 30, 5, 10)
-    # set_CONSTS(20000, 30, 5, 10)
+    set_CONSTS(20000, 30, 5, 10)
     # set_CONSTS(50000, 45, 10, 15)
     # set_CONSTS(100000, 45, 10, 15)
-    set_CONSTS(500000, 30, 15, 20)
+    # set_CONSTS(500000, 30, 15, 20)
 
 def set_CONSTS(R,D,C,T):
     global ROWS,DATE_RANGE,ROOMS,TEACHERS,SAMPLE_PATH
@@ -28,7 +31,7 @@ def set_CONSTS(R,D,C,T):
     DATE_RANGE=D
     ROOMS=C
     TEACHERS=T
-    SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
+    SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T_v2.xlsx"
     # SAMPLE_PATH = f"MSLサンプル.xlsx"
 
 def print_progress(current,total,width=40):
@@ -47,10 +50,10 @@ def make_sample():
         "日付","出欠","担当講師名","担当講師N0",
         "教室","学年","科目"
     ]
-    for i in range(1,2):
+    for i in range(1,TEST_COUNT+1):
         headers.append(f"ラップ{i}（分子）")
         headers.append(f"確認{i}（分子）")
-    for i in range(1,6):
+    for i in range(1,HW_COUNT+1):
         headers+=[
             f"宿題名_{i}",
             f"宿題開始ページ_{i}",
@@ -83,18 +86,19 @@ def make_sample():
     ]
 # テスト実施データ
     vals=np.array([1,None],dtype=object)
-    for _ in range(5):
+    for _ in range(TEST_COUNT):
         # Lap
-        cols.append(rng.choice(vals,ROWS,p=[0.6,0.4]))
+        cols.append(rng.choice(vals,ROWS,p=[0.5,0.5]))
         # 確認
-        cols.append(rng.choice(vals,ROWS,p=[0.7,0.3]))
+        cols.append(rng.choice(vals,ROWS,p=[0.6,0.4]))
 
 # 宿題データ
     hw_names=["単語帳","問題集","Lodestar","BUILDER","Leap"]
-    for _ in range(5):
+    hw_p=np.array([0,1,5,10,20,30],dtype=object)
+    for _ in range(HW_COUNT):
         cols.append(rng.choice(hw_names,ROWS))
-        s=rng.integers(1,30,ROWS)
-        cols.append(s)
+        s=rng.choice(hw_p,ROWS,p=[0.05,0.05,0.45,0.25,0.15,0.05])
+        cols.append(np.zeros(ROWS,dtype=np.int32)+1)
         cols.append(s+rng.integers(0,3,ROWS))
 
 
