@@ -11,7 +11,7 @@ from pathlib import Path
 APP_NAME_BASE = "MSL集計ソフト"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
 MIN_VERSION="11"
-MAX_VERSION="14"
+MAX_VERSION="15"
 DEFAULT_VERSION=MAX_VERSION
 ICON_NAME = "logo.ico"
 SPLASH_NAME = "splash.png"
@@ -255,8 +255,6 @@ def main() -> int:
     exe_name = f"{APP_NAME_BASE}_v{version}"
     if mode == "dev":
         exe_name += "_dev"
-    elif mode == "release":
-        exe_name += "_release"
 
     print("\n=== STEP 1: CLEANING ===")
     clean_outputs(project_root, build_dir, exe_name)
