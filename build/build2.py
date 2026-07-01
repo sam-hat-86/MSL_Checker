@@ -8,16 +8,14 @@ import sys
 import shutil
 from pathlib import Path
 
-
 APP_NAME_BASE = "MSL集計ソフト"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
 MIN_VERSION="11"
-MAX_VERSION="13"
+MAX_VERSION="14"
 DEFAULT_VERSION=MAX_VERSION
 ICON_NAME = "logo.ico"
 SPLASH_NAME = "splash.png"
 BUILD_REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements-build.txt"
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MSL Checker を Nuitka でビルドします。")
@@ -25,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-m",
         "--mode",
-        choices=["1", "2", "3", "dev", "pre", "release"],
-        help="ビルドモード (1: dev, 2: pre, 3: release)",
+        choices=["1", "2", "dev","release"],
+        help="ビルドモード (1: dev, 2: release)",
     )
     parser.add_argument(
         "--jobs",
@@ -41,34 +39,25 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
 def normalize_version(s: object) -> str:
     if s is None: return ""
     return str(s).strip()
 
-
 def prompt_version()->str:
-    v=input(
-        f"ビルドバージョンを入力 ({MIN_VERSION}-{MAX_VERSION},既定:{DEFAULT_VERSION}): "
-    ).strip()
+    v=input(f"ビルドバージョンを入力 ({MIN_VERSION}-{MAX_VERSION},既定:{DEFAULT_VERSION}): ").strip()
     return v if v else DEFAULT_VERSION
 
 def prompt_build_mode() -> str:
     print("ビルドモードを選択してください:")
-    print("  1: dev (LTOなし / コンソールあり)")
-    print("  2: pre (LTOあり / コンソールあり)")
-    print("  3: release (LTOあり / コンソールなし)")
-    choice = "2"
-    choice = input("選択 (1-3, 既定: 2): ").strip()
-    if choice == "1": return "dev"
-    if choice == "3": return "release"
-    return "pre"
-
+    print("  1: dev (コンソールあり)")
+    print("  2: release (コンソールなし)")
+    choice = input("選択 (1-2, 既定: 1): ").strip()
+    if choice == "2": return "release"
+    return "dev"
 
 def available_versions(project_root:Path)->list[str]:
     search_dirs=[project_root/"src",project_root]
     versions=set()
-
     min_ver=int(MIN_VERSION)
     max_ver=int(MAX_VERSION)
 
@@ -93,7 +82,6 @@ def find_script_path(project_root: Path, version: str) -> Path | None:
             return c
     return None
 
-
 def find_requirements_file(project_root: Path, version: str) -> Path | None:
     candidates = [
         project_root / "src" / f"requirements_v{version}.txt",
@@ -108,26 +96,19 @@ def find_requirements_file(project_root: Path, version: str) -> Path | None:
             return c
     return None
 
-
 def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: int, mode: str, version: str) -> list[str]:
-    # どのバージョンでも使用しない明らかな不要モジュール
     common_exclusions = [
-        #タイムゾーン
         "--nofollow-import-to=tzdata",
-
-        # テスト・開発環境
         "--nofollow-import-to=unittest",
         "--nofollow-import-to=IPython",
         "--nofollow-import-to=notebook",
         "--nofollow-import-to=pytest",
         "--nofollow-import-to=distutils",
         "--nofollow-import-to=setuptools",
-        # ネットワーク・通信系
         "--nofollow-import-to=ssl",
         "--nofollow-import-to=asyncio",
         "--nofollow-import-to=http",
         "--nofollow-import-to=ftplib",
-        "--nofollow-import-to=select",
         "--nofollow-import-to=encodings.idna",
         "--nofollow-import-to=stringprep",
     ]
@@ -138,10 +119,9 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
     except ValueError:
         pass
 
-    # バージョンごとの依存ライブラリを考慮した精密除外設定
     version_exclusions = []
+    version_allowances = []
 
-    # 共通で使用しない重い分析系パッケージ
     common_unused = [
         "--nofollow-import-to=pandas",
         "--nofollow-import-to=numpy",
@@ -150,15 +130,26 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--nofollow-import-to=cryptography",
         "--nofollow-import-to=jinja2",
         "--nofollow-import-to=pytz",
+        "--nofollow-import-to=pyarrow.tests.*",
     ]
     version_exclusions.extend(common_unused)
 
     if v_num >= 13:
-        # v13: Polarsを使用しない（SQLite3,xlsxwriterを使用）
         version_exclusions.extend([
             "--nofollow-import-to=polars",
         ])
-        print(f"[INFO] v13向けビルド定義：Polarsを除外し、インメモリSQLiteを適用します。")
+        print(f"[INFO] v13以降向けビルド定義：Polarsを除外します。")
+
+    if v_num == 13:
+        version_exclusions.extend([
+            "--nofollow-import-to=pyarrow",
+        ])
+    else:
+        version_allowances.extend([
+            "--include-package=pyarrow",
+            "--include-package=fastexcel",
+        ])
+
     common_exclusions.extend(version_exclusions)
 
     command = [
@@ -176,40 +167,32 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--no-deployment-flag=self-execution",
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
+        "--lto=no",
     ]
 
-    # アイコン設定
     ico_path = project_root / 'build' / ICON_NAME
     if ico_path.exists():
         command.append(f"--windows-icon-from-ico={ico_path}")
 
-    # スプラッシュ設定
     splash_path = project_root / 'build' / SPLASH_NAME
     if splash_path.exists():
         command.append(f"--onefile-windows-splash-screen-image={splash_path}")
         print(f"[INFO] スプラッシュ画面を適用します: {splash_path}")
 
     command.extend(common_exclusions)
+    command.extend(version_allowances)
 
     if mode == "dev":
         command.extend([
-            "--lto=no",
             "--windows-console-mode=force",
         ])
-    elif mode == "pre":
+    else:
         command.extend([
-            "--lto=yes",
-            "--windows-console-mode=force",
-        ])
-    elif mode == "release":
-        command.extend([
-            "--lto=yes",
             "--windows-console-mode=disable",
         ])
 
     command.append(str(script_path))
     return command
-
 
 def clean_outputs(project_root: Path, build_dir: Path, exe_name: str) -> None:
     output_exe = project_root / f"{exe_name}.exe"
@@ -225,7 +208,6 @@ def clean_outputs(project_root: Path, build_dir: Path, exe_name: str) -> None:
         target = project_root / f"{exe_name}{suffix}"
         if target.exists():
             shutil.rmtree(target, ignore_errors=True)
-
 
 def main() -> int:
     args = parse_args()
@@ -254,13 +236,11 @@ def main() -> int:
         print(f"対象バージョン: v{MIN_VERSION}～v{MAX_VERSION}")
         return 1
 
-    mode = "pre"
+    mode = "dev"
     if args.mode:
         if args.mode in ("1", "dev"):
             mode = "dev"
-        elif args.mode in ("2", "pre"):
-            mode = "pre"
-        elif args.mode in ("3", "release"):
+        elif args.mode in ("2", "release"):
             mode = "release"
     else:
         mode = prompt_build_mode()
@@ -275,8 +255,8 @@ def main() -> int:
     exe_name = f"{APP_NAME_BASE}_v{version}"
     if mode == "dev":
         exe_name += "_dev"
-    elif mode == "pre":
-        exe_name += "_pre"
+    elif mode == "release":
+        exe_name += "_release"
 
     print("\n=== STEP 1: CLEANING ===")
     clean_outputs(project_root, build_dir, exe_name)
@@ -288,16 +268,15 @@ def main() -> int:
         print(f"ビルド支援依存関係: {BUILD_REQUIREMENTS_FILE}")
 
     mode_descriptions = {
-        "dev": "dev (LTOなし / コンソールあり)",
-        "pre": "pre (LTOあり / コンソールあり / デバッグ用)",
-        "release": "release (LTOあり / コンソールなし / 本番配布用)",
+        "dev": "dev (コンソールあり)",
+        "release": "release (コンソールなし / 本番配布用)",
     }
     print(f"ビルドターゲットモード: {mode_descriptions[mode]}")
 
     command = build_command(project_root, script_path, exe_name, args.jobs, mode, version)
 
     env = os.environ.copy()
-    env["PYTHONOPTIMIZE"] = "1" if mode in ("pre", "release") else "0"
+    env["PYTHONOPTIMIZE"] = "1" if mode in ("release") else "0"
 
     if args.dry_run:
         print()
@@ -326,7 +305,6 @@ def main() -> int:
 
     print("[エラー] EXEファイルの生成が確認できませんでした。")
     return 1
-
 
 if __name__ == "__main__":
     main()
