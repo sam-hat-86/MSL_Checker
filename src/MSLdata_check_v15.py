@@ -687,9 +687,18 @@ def main():
     root = tk.Tk()
     configure_tk_scaling(root)
     root.withdraw()
+
     try:
         root.attributes("-topmost", True); root.lift(); root.focus_force()
-        input_file = filedialog.askopenfilename(title="集計元のExcelファイルを選択してください", filetypes=[("集計データ","scube2-lesson-result_*.xlsx"), ("Excel", "*.xlsx"), ("すべてのファイル", "*.*")], parent=root)
+        downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+
+        input_file = filedialog.askopenfilename(
+            title="集計元のExcelファイルを選択してください",
+            initialdir=downloads_dir,
+            filetypes=[("集計データ","scube2-lesson-result_*.xlsx"), ("Excel", "*.xlsx"), ("すべてのファイル", "*.*")],
+            parent=root
+        )
+
         if not input_file:
             root.destroy()
             return
@@ -760,7 +769,6 @@ def main():
 
         root.attributes("-topmost", True)
         open_file = messagebox.askyesno("集計完了", result_msg, parent=root)
-        root.attributes("-topmost", False)
 
         if open_file:
             suggest_msg=(
@@ -771,9 +779,9 @@ def main():
                 f"列の自動調整：[Alt]→[H]→[O]→[I]"
             )
             os.startfile(output_file)
-
             messagebox.showinfo("おすすめの操作",suggest_msg, parent=root)
 
+        root.attributes("-topmost", False)
         progress(f"処理完了(実行時間: {total_elapsed:.2f}秒)")
     except KeyboardInterrupt: pass
     except Exception as e:
