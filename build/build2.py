@@ -111,6 +111,16 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--nofollow-import-to=ftplib",
         "--nofollow-import-to=encodings.idna",
         "--nofollow-import-to=stringprep",
+        "--nofollow-import-to=tcl.tzdata",
+        "--nofollow-import-to=pandas",
+        "--nofollow-import-to=numpy",
+        "--nofollow-import-to=matplotlib",
+        "--nofollow-import-to=scipy",
+        "--nofollow-import-to=cryptography",
+        "--nofollow-import-to=jinja2",
+        "--nofollow-import-to=pytz",
+        "--nofollow-import-to=pyarrow.tests.*",
+        "--nofollow-import-to=pyarrow.pandas.*",
     ]
 
     v_num = 0
@@ -121,18 +131,6 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
 
     version_exclusions = []
     version_allowances = []
-
-    common_unused = [
-        "--nofollow-import-to=pandas",
-        "--nofollow-import-to=numpy",
-        "--nofollow-import-to=matplotlib",
-        "--nofollow-import-to=scipy",
-        "--nofollow-import-to=cryptography",
-        "--nofollow-import-to=jinja2",
-        "--nofollow-import-to=pytz",
-        "--nofollow-import-to=pyarrow.tests.*",
-    ]
-    version_exclusions.extend(common_unused)
 
     if v_num >= 13:
         version_exclusions.extend([
@@ -167,7 +165,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--no-deployment-flag=self-execution",
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
-        "--lto=no",
+        # "--lto=no",
     ]
 
     ico_path = project_root / 'build' / ICON_NAME
@@ -189,6 +187,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
     else:
         command.extend([
             "--windows-console-mode=disable",
+            "--lto=yes",
         ])
 
     command.append(str(script_path))
