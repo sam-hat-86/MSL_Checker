@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" href="icon.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <title>MSL Checker 運用マニュアル</title>
+    <meta name="description" content="MSL Checkerの概要、操作手順、データの見方、およびエラー時の解決方法をまとめたマニュアルです。">
+</head>
+<body>
+    <main id="main" role="main" tabindex="-1">
+
+        <aside class="note-toc" aria-labelledby="toc-label">
+            <h1>MSL Checker</h1>
+            <h2 id="toc-label" class="sr-only">目次</h2>
+            <ul class="toc">
+                <li><a href="#home">システム概要</a></li>
+                <li><a href="#usage">基本の操作手順</a></li>
+                <li><a href="#output-format">出力データ（Excel）の見方</a></li>
+                <li><a href="#data-cleansing">自動処理・除外のルール</a></li>
+                <li><a href="#troubleshooting">トラブルシューティング</a></li>
+            </ul>
+            <div class="toc-download">
+                <a class="toc-download-button" href="https://github.com/sam-hat-86/MSL_Checker/raw/refs/heads/main/MSL集計ソフト_v15.exe" rel="noopener">MSL集計ソフトをダウンロード</a>
+            </div>
+        </aside>
+
+        <div class="content-body">
+
+            <section id="home">
+                <h2>システム概要</h2>
+                <p>MSLの授業集計から出力されたExcelファイルを読み込み、講師別・週別の授業数や宿題の平均などを自動で集計してくれる業務ツールです。</p>
+                <p>手作業でのデータ整理や計算の時間をなくし、そのまま報告や分析に使える見やすいレポートを数秒で作成します。</p>
+            </section>
+
+            <section id="usage">
+                <h2>基本の操作手順</h2>
+
+                <div class="step-box">
+                    <h3>1. データファイルの準備</h3>
+                    <p>集計したいExcelファイルをパソコンに保存しておきます。<br>事前のデータ加工は不要ですが、集計元ファイルを開いたままにしているとエラーになるため、<strong>必ずExcel画面は閉じておいてください。</strong></p>
+                </div>
+
+                <div class="step-box">
+                    <h3>2. ソフトの起動とファイルの選択</h3>
+                    <p>ダウンロードしたソフト（<code>MSL集計ソフト_vXX.exe(XXは数字)</code>）をダブルクリックして起動します。</p>
+                    <p>最初に<strong>ファイル選択画面</strong>が開きますので、手順1で準備したExcelファイルを選んで「開く」を押してください。</p>
+                    <p>もし、ファイル名を<code>scube2-lesson-result_*.xlsx</code>から変更した場合は、右下の「集計データ～」(開くボタンの上にある)をクリックして、「Excel～」を選択してください。</p>
+                </div>
+
+                <div class="step-box">
+                    <h3>3. 「開始曜日」の選択</h3>
+                    <p>ファイルを選択すると、続いて<strong>「土曜始まり（土〜金）で集計しますか？」</strong>という確認画面が表示されます。</p>
+                    <ul class="action-list">
+                        <li><strong>はい　：</strong> 1週間の区切りを「土曜日〜金曜日」として集計します。(社員向け)</li>
+                        <li><strong>いいえ：</strong> 1週間の区切りを「月曜日〜日曜日」として集計します。(講師向け)</li>
+                    </ul>
+                    <p>どちらかを選ぶと、自動的に集計処理がスタートします。</p>
+                </div>
+
+                <div class="step-box">
+                    <h3>4. 処理完了とファイルを開く</h3>
+                    <p>数秒〜数十秒待つと、画面に<strong>「処理が完了しました！」</strong>というメッセージと、処理した件数などが表示されます。</p>
+                    <p>メッセージの下にある「作成されたファイルを開きますか？」で<strong>「はい」</strong>を選ぶと、完成した集計結果のExcelが自動で開きます。</p>
+                    <p>集計結果のファイルは、元のファイルと同じ場所に自動で保存されています</p>
+                    <p>ファイル名は<code>集計結果_[yyyymmdd-yyyymmdd]_yymmdd-hhmmss.xlsx</code>の形式になります。</p>
+                    <p>2020/01/01～2025/12/31の集計データを2026/04/01-12:34:56に処理した場合<br>
+                        <code>集計結果_[20200101-20251231]_260401-123456.xlsx</code>となります。
+                    </p>
+                </div>
+
+                <div class="step-box highlight-step">
+                    <h3>5. 【推奨】エクセルの列幅を整える操作</h3>
+                    <p>Excelファイルが開くと同時に、画面上に<strong>「おすすめの操作」</strong>という案内が表示されます。文字が隠れず綺麗に表示されるよう、以下のキーボード操作を行ってください。</p>
+                    <div class="shortcut-guide">
+                        <ol>
+                            <li>キーボードの <kbd>Ctrl</kbd> を押しながら <kbd>A</kbd> を押し、シート全体を選択します。</li>
+                            <li>そのまま、<kbd>Alt</kbd> ➔ <kbd>H</kbd> ➔ <kbd>O</kbd> ➔ <kbd>I</kbd> の順番でキーを1つずつ押します（列幅の自動調整）。</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <section id="output-format">
+                <h2>出力データ（Excel）の見方</h2>
+                <p>完成したExcelファイルには、用途に合わせて<strong>2つのシート（タブ）</strong>が作成されます。</p>
+
+                <div class="sheet-explain">
+                    <h4>シート①：「全集計」</h4>
+                    <p>読み込んだすべてのデータをそのまま集計した基本のシートです。（タブの色：青）</p>
+
+                    <h4>シート②：「除外済み集計」</h4>
+                    <p>特定の学年（高3・高卒）と、特定の科目（国語・小論文）のデータを<strong>自動的に除外</strong>して集計したシートです。受験生や特殊科目を抜いた、通常の授業ベースでの数値を分析したい場合に使用します。（タブの色：緑）</p>
+                </div>
+
+                <h3>自動追加される「AVG（平均）」行について</h3>
+                <p>各教室のデータの<strong>一番上の行には、「氏名：AVG（平均）」という行が自動的に追加</strong>されます。<br>これにより、講師個人の数値だけでなく、「その教室全体の平均値」や「その教室の合計授業数」がひと目で比較できるようになっています。</p>
+
+                <h3>出力項目の詳細（ヘッダー列の説明）</h3>
+                <p>Excel上で生成される各列の定義と算出ルールです。色付きの項目は、実際のExcel上でも同色が適用されます。</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ヘッダー項目名</th>
+                            <th>データの内容と算出ルール</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>No</strong></td>
+                            <td>システム上の講師番号（入力データの「担当講師N0」をそのまま出力します）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>氏名</strong></td>
+                            <td>授業を担当した講師の氏名</td>
+                        </tr>
+                        <tr>
+                            <td><strong>教室</strong></td>
+                            <td>授業が実施された対象の教室・拠点名</td>
+                        </tr>
+                        <tr class="row-lavender">
+                            <td><strong>総授業</strong></td>
+                            <td>対象の全期間内における、その講師が担当した有効授業数の合計です。<br>※視覚的に区別するため、Excel上では基本色として<strong>ラベンダー色</strong>が適用されます。</td>
+                        </tr>
+                        <tr class="row-khaki">
+                            <td><strong>授業</strong></td>
+                            <td>各週ごとの担当授業数（欠席データなどは自動除外済）です。<br>※各週の区切りのため、Excel上では基本色として<strong>カーキ色</strong>が適用されます。</td>
+                        </tr>
+                        <tr>
+                            <td><strong>平均HW</strong></td>
+                            <td>各週の宿題ページ数の平均値です。（単語帳など除外対象の教材を省いた実質平均）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Lap回数</strong></td>
+                            <td>各週のLap（ラップ）実施回数の合計です。</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Lap％</strong></td>
+                            <td>各週の授業数に対するLap実施率です。（Lap実施回数 ÷ 有効授業数）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>テスト回数</strong></td>
+                            <td>各週の確認テスト実施回数の合計です。</td>
+                        </tr>
+                        <tr>
+                            <td><strong>テスト％</strong></td>
+                            <td>各週の授業数に対する確認テスト実施率です。（テスト実施回数 ÷ 有効授業数）</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>条件付き書式（アラート）の適用基準</h3>
+                <p>規定の目標値を下回った項目には、Excel上で自動的に以下の警告色が適用され、視覚的に課題を発見できるようになります。</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>対象指標</th>
+                            <th>適用される警告色</th>
+                            <th>アラートが発動する条件</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="row-orange">
+                            <td><strong>平均HW</strong> (宿題)</td>
+                            <td>淡いオレンジ</td>
+                            <td>週の宿題平均ページ数が <strong>6.0 未満</strong> に落ち込んだ場合</td>
+                        </tr>
+                        <tr class="row-tomato">
+                            <td><strong>Lap％ / テスト％</strong></td>
+                            <td>淡い赤ピンク</td>
+                            <td>週の実施割合が <strong>70% 未満</strong> に落ち込んだ場合</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="data-cleansing">
+                <h2>自動処理・除外のルール</h2>
+                <p>ソフトはただ計算するだけでなく、データをおかしくする原因を自動で省いてから計算を行っています。</p>
+                <ul>
+                    <li><strong>単語帳のページ数除外：</strong><br>「シスタン」「ターゲット」「リープ(leap)」「パス単」など、英単語帳の名前が入っている宿題は、ページ数の基準が異なるため「平均HW」の計算から自動的に外されます。</li>
+                    <li><strong>授業実績のないデータの除外：</strong><br>出欠のステータスが「出席」となっていないデータは、すべて計算の対象外となります。</li>
+                </ul>
+            </section>
+
+            <section id="troubleshooting">
+                <h2>トラブルシューティング（エラー・よくある質問）</h2>
+
+                <dl>
+                    <dt>Q. ダウンロードしたソフトを開くと「WindowsによってPCが保護されました」という青い画面が出る</dt>
+                    <dd>
+                        <strong>A.</strong> インターネットからダウンロードした新しいソフトを初回起動する際に出る、Windowsの標準的なセキュリティ警告です。<br>
+                        画面左側にある<strong>「詳細情報」</strong>という文字をクリックすると、右下に<strong>「実行」</strong>ボタンが現れます。この「実行」ボタンを押すことで通常通り起動できます。
+                    </dd>
+
+                    <dt>Q. ソフトが勝手に消えてしまう / ウイルス対策ソフトにブロックされる</dt>
+                    <dd>
+                        <strong>A.</strong> 企業で導入されているセキュリティソフト（ウイルスバスターやマカフィー等）が、自作のシステム（.exeファイル）を誤検知して削除してしまう場合があります。<br>
+                        その場合は、社内のシステム管理部門等に「当該ソフトの利用許可（ホワイトリスト登録）」をご相談ください。
+                    </dd>
+
+                    <dt>Q. 「出力先のExcelファイルが開かれたままです」と表示される</dt>
+                    <dd>
+                        <strong>A.</strong> 前回作成した「集計結果のExcelファイル」を画面で開いたまま、もう一度ソフトを動かそうとしています。<br>
+                        開いている集計結果のExcelを「×」ボタンで完全に閉じてから、再度ソフトを実行してください。
+                    </dd>
+
+                    <dt>Q. 「集計対象のデータが見つかりませんでした」と表示される</dt>
+                    <dd>
+                        <strong>A.</strong> 読み込ませたファイルの中に、集計できるデータが1件もありません。<br>
+                        一番上の見出しの行に「出欠」「担当講師名」「担当講師N0（最後は数字のゼロ）」「教室」の文字が正しく入っているか確認してください。文字の前後に余計な空白（スペース）が入っている場合もエラーになります。
+                    </dd>
+
+                    <dt>Q. 処理は完了したが、出力されたExcelの数値が「0件」や空欄になってしまう</dt>
+                    <dd>
+                        <strong>A.</strong> データの「出欠」列が、正確に<strong>「出席」</strong>という文字になっていない可能性があります。<br>
+                        「欠席」「振替」などのデータや、前後にスペースが入っている文字は計算対象外として除外されるため、元データの入力状態をご確認ください。
+                    </dd>
+
+                    <dt>Q. 出力されたExcelの数字が「#####」のようにシャープになって見えない</dt>
+                    <dd>
+                        <strong>A.</strong> Excelの列幅が、表示される数字に対して狭すぎる場合に発生する、Excel特有の表示仕様です。<br>
+                        キーボード操作（<kbd>Ctrl</kbd> + <kbd>A</kbd> を押したあと、<kbd>Alt</kbd> ➔ <kbd>H</kbd> ➔ <kbd>O</kbd> ➔ <kbd>I</kbd>）を行うことで、列の幅が自動調整され正しい数値が表示されます。
+                    </dd>
+
+                    <dt>Q. 複数のシートがあるExcelファイルを読み込ませた場合はどうなりますか？</dt>
+                    <dd>
+                        <strong>A.</strong> 本システムは、対象となるExcelファイルの<strong>「一番左にあるシート（1枚目のシート）」のみ</strong>を自動で読み込みます。<br>
+                        集計したいデータは、必ず1枚目のシートに配置してください。
+                    </dd>
+
+                    <dt>Q. 前に作成した集計結果は、再度ソフトを動かすと上書きされて消えますか？</dt>
+                    <dd>
+                        <strong>A.</strong> いいえ、消えません。<br>
+                        出力されるファイル名には、作成時の「日付と時間（例：250101-123456）」が自動的に付与されるため、同じフォルダに保存しても別のファイルとして履歴が蓄積されます。
+                    </dd>
+
+                    <dt>Q. ファイルを選ぶ画面で、目的のExcelファイルが表示されない</dt>
+                    <dd>
+                        <strong>A.</strong> 間違ったファイルを選ばないよう、Excel形式のファイル（.xlsxなど）しか表示されない設定になっています。<br>
+                        もしシステムから「CSVファイル」としてダウンロードした場合は、一度そのファイルを開き、「名前を付けて保存」からExcelブック形式（.xlsx）で保存し直してからお使いください。
+                    </dd>
+
+                    <dt>Q. 「処理中にエラーが発生しました」というメッセージが出る</dt>
+                    <dd>
+                        <strong>A.</strong> 集計元のExcelファイルがパスワードで暗号化されていたり、アクセス制限のある共有フォルダ（OneDriveの同期処理中など）に置かれていると、システムがファイルを正しく読み込めずエラーになります。<br>
+                        一度、対象のファイルを<strong>ご自身のパソコンの「デスクトップ」にコピー（移動）してから</strong>、再度処理をお試しください。
+                    </dd>
+
+                    <dt>Q. 処理に時間がかかって画面が止まったように見える</dt>
+                    <dd>
+                        <strong>A.</strong> 1万行を超えるような大きなデータを読み込ませた場合、パソコンの計算に数十秒ほど時間がかかることがあります。途中で「応答なし」と表示されてもエラーではないため、完了メッセージが出るまでそのままお待ちください。
+                    </dd>
+
+                    <dt>Q. Mac（マック）のパソコンでも使えますか？</dt>
+                    <dd>
+                        <strong>A.</strong> 本システムは <strong>Windows専用（.exe形式）</strong>となります。Mac環境では動作いたしませんので、Windows環境のパソコンにてご利用ください。
+                    </dd>
+                </dl>
+            </section>
+
+        </div>
+    </main>
+</body>
+</html>
