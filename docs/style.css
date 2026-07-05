@@ -31,7 +31,6 @@ main {
     align-items: flex-start;
     gap: 30px;
     width: 100%;
-    /* max-widthの設定を廃止し、画面幅を最大限活用します */
     margin: 0 auto;
 }
 
@@ -69,6 +68,9 @@ h1 {
     text-align: center;
     letter-spacing: 0.02em;
     font-weight: 700;
+    &::before{
+        content: url(icon.png);
+    }
 }
 
 h2 {
