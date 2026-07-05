@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,11 +13,14 @@
     <title>MSL Checker 運用マニュアル</title>
     <meta name="description" content="MSL Checkerの概要、操作手順、データの見方、およびエラー時の解決方法をまとめたマニュアルです。">
 </head>
+
 <body>
     <main id="main" role="main" tabindex="-1">
 
         <aside class="note-toc" aria-labelledby="toc-label">
-            <h1>MSL Checker</h1>
+            <a href="https://github.com/sam-hat-86/MSL_Checker">
+                <h1>MSL Checker</h1>
+            </a>
             <h2 id="toc-label" class="sr-only">目次</h2>
             <ul class="toc">
                 <li><a href="#home">システム概要</a></li>
@@ -49,6 +53,10 @@
                 <div class="step-box">
                     <h3>2. ソフトの起動とファイルの選択</h3>
                     <p>ダウンロードしたソフト（<code>MSL集計ソフト_vXX.exe(XXは数字)</code>）をダブルクリックして起動します。</p>
+                    <div class="toc-download">
+                        <a class="toc-download-button" href="https://github.com/sam-hat-86/MSL_Checker/raw/refs/heads/main/MSL集計ソフト_v15.exe" rel="noopener">MSL集計ソフトをダウンロード</a>
+                    </div>
+                    <br>
                     <p>最初に<strong>ファイル選択画面</strong>が開きますので、手順1で準備したExcelファイルを選んで「開く」を押してください。</p>
                     <p>もし、ファイル名を<code>scube2-lesson-result_*.xlsx</code>から変更した場合は、右下の「集計データ～」(開くボタンの上にある)をクリックして、「Excel～」を選択してください。</p>
                 </div>
@@ -76,10 +84,12 @@
 
                 <div class="step-box highlight-step">
                     <h3>5. 【推奨】エクセルの列幅を整える操作</h3>
-                    <p>Excelファイルが開くと同時に、画面上に<strong>「おすすめの操作」</strong>という案内が表示されます。文字が隠れず綺麗に表示されるよう、以下のキーボード操作を行ってください。</p>
+                    <p>Excelファイルが開くと同時に、画面上に<strong>「おすすめの操作」</strong>という案内が表示されます。</p>
+                    <p>文字が隠れず綺麗に表示されるよう、以下のキーボード操作を行ってください。</p>
                     <div class="shortcut-guide">
                         <ol>
                             <li>キーボードの <kbd>Ctrl</kbd> を押しながら <kbd>A</kbd> を押し、シート全体を選択します。</li>
+                            <br>
                             <li>そのまま、<kbd>Alt</kbd> ➔ <kbd>H</kbd> ➔ <kbd>O</kbd> ➔ <kbd>I</kbd> の順番でキーを1つずつ押します（列幅の自動調整）。</li>
                         </ol>
                     </div>
@@ -95,7 +105,8 @@
                     <p>読み込んだすべてのデータをそのまま集計した基本のシートです。（タブの色：青）</p>
 
                     <h4>シート②：「除外済み集計」</h4>
-                    <p>特定の学年（高3・高卒）と、特定の科目（国語・小論文）のデータを<strong>自動的に除外</strong>して集計したシートです。受験生や特殊科目を抜いた、通常の授業ベースでの数値を分析したい場合に使用します。（タブの色：緑）</p>
+                    <p>特定の学年（高3・高卒）と、特定の科目（国語・小論文）のデータを<strong>自動的に除外</strong>して集計したシートです。</p>
+                    <p>受験生や特殊科目を抜いた、通常の授業ベースでの数値を分析したい場合に使用します。（タブの色：緑）</p>
                 </div>
 
                 <h3>自動追加される「AVG（平均）」行について</h3>
@@ -177,14 +188,38 @@
                         </tr>
                     </tbody>
                 </table>
+
+                <h3>出力サンプル (※開発中のイメージです。)</h3>
+                <img src="data_sample.png" alt="出力サンプル画像">
             </section>
 
             <section id="data-cleansing">
                 <h2>自動処理・除外のルール</h2>
                 <p>ソフトはただ計算するだけでなく、データをおかしくする原因を自動で省いてから計算を行っています。</p>
                 <ul>
-                    <li><strong>単語帳のページ数除外：</strong><br>「シスタン」「ターゲット」「リープ(leap)」「パス単」など、英単語帳の名前が入っている宿題は、ページ数の基準が異なるため「平均HW」の計算から自動的に外されます。</li>
-                    <li><strong>授業実績のないデータの除外：</strong><br>出欠のステータスが「出席」となっていないデータは、すべて計算の対象外となります。</li>
+                    <li><strong>欠席の除外：</strong><br>出欠のステータスが「出席」となっていないデータは、すべて計算の対象外となります。</li>
+                    <li><strong>宿題ページ数の上限：</strong><br>宿題１つのページ数を３０ページまでとします。上限を超える場合は、上限値を使い「平均HW」を計算します。</li>
+                    <li><strong>特定宿題のページ数除外：</strong><br>以下の名前が入っている宿題は、「平均HW」の計算から自動的に外されます。</li>
+                    <ul>
+                        <li>タンゴ</li>
+                        <li>単語</li>
+                        <li>シスタン</li>
+                        <li>シス単</li>
+                        <li>ターゲット</li>
+                        <li>リープ</li>
+                        <li>leap</li>
+                        <li>ゲットスルー</li>
+                        <li>パスタン</li>
+                        <li>パス単</li>
+                        <li>マドンナ</li>
+                    </ul>
+                    <li><strong>特定学年・科目の除外：</strong><br>以下の学年・科目は、「除外済み集計」シートの計算から自動的に外されます。</li>
+                    <ul>
+                        <li>高3</li>
+                        <li>高卒</li>
+                        <li>国語</li>
+                        <li>小論文</li>
+                    </ul>
                 </ul>
             </section>
 
@@ -196,12 +231,6 @@
                     <dd>
                         <strong>A.</strong> インターネットからダウンロードした新しいソフトを初回起動する際に出る、Windowsの標準的なセキュリティ警告です。<br>
                         画面左側にある<strong>「詳細情報」</strong>という文字をクリックすると、右下に<strong>「実行」</strong>ボタンが現れます。この「実行」ボタンを押すことで通常通り起動できます。
-                    </dd>
-
-                    <dt>Q. ソフトが勝手に消えてしまう / ウイルス対策ソフトにブロックされる</dt>
-                    <dd>
-                        <strong>A.</strong> 企業で導入されているセキュリティソフト（ウイルスバスターやマカフィー等）が、自作のシステム（.exeファイル）を誤検知して削除してしまう場合があります。<br>
-                        その場合は、社内のシステム管理部門等に「当該ソフトの利用許可（ホワイトリスト登録）」をご相談ください。
                     </dd>
 
                     <dt>Q. 「出力先のExcelファイルが開かれたままです」と表示される</dt>
@@ -256,15 +285,11 @@
                     <dd>
                         <strong>A.</strong> 1万行を超えるような大きなデータを読み込ませた場合、パソコンの計算に数十秒ほど時間がかかることがあります。途中で「応答なし」と表示されてもエラーではないため、完了メッセージが出るまでそのままお待ちください。
                     </dd>
-
-                    <dt>Q. Mac（マック）のパソコンでも使えますか？</dt>
-                    <dd>
-                        <strong>A.</strong> 本システムは <strong>Windows専用（.exe形式）</strong>となります。Mac環境では動作いたしませんので、Windows環境のパソコンにてご利用ください。
-                    </dd>
                 </dl>
             </section>
 
         </div>
     </main>
 </body>
+
 </html>
