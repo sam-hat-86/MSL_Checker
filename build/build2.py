@@ -8,7 +8,7 @@ import sys
 import shutil
 from pathlib import Path
 
-APP_NAME_BASE = "MSL集計ソフト"
+APP_NAME_BASE = "MSL_Checker"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
 MIN_VERSION="11"
 MAX_VERSION="15"
@@ -161,7 +161,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         f"--jobs={max(4, jobs)}",
         "--assume-yes-for-downloads",
         "--windows-company-name=sam-hat-86",
-        "--windows-product-name=MSL集計ソフト",
+        "--windows-product-name=MSL_Checker",
         f"--windows-product-version={version}",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
