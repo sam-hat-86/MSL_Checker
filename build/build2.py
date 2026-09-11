@@ -119,8 +119,8 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--nofollow-import-to=cryptography",
         "--nofollow-import-to=jinja2",
         "--nofollow-import-to=pytz",
-        "--nofollow-import-to=pyarrow.tests.*",
-        "--nofollow-import-to=pyarrow.pandas.*",
+        "--nofollow-import-to=pyarrow.tests",
+        "--nofollow-import-to=pyarrow.pandas_compat",
     ]
 
     v_num = 0
