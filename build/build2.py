@@ -170,7 +170,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
         "--lto=no",
-        f"--windows-console-mode={'enabled' if mode == 'dev' else 'disabled'}",
+        f"--windows-console-mode={'force' if mode == 'dev' else 'disable'}",
     ]
 
     ico_path = project_root / 'build' / ICON_NAME
