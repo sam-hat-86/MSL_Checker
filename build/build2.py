@@ -155,17 +155,22 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "-m",
         "nuitka",
         "--onefile",
+        # "--standalone"
         "--follow-imports",
         "--enable-plugin=tk-inter",
         f"--jobs={max(4, jobs)}",
         "--assume-yes-for-downloads",
+        "--windows-company-name=sam-hat-86",
+        "--windows-product-name=MSL集計ソフト",
+        f"--windows-product-version={version}",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
         "--remove-output",
         "--no-deployment-flag=self-execution",
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
-        # "--lto=no",
+        "--lto=no",
+        f"--windows-console-mode={'enabled' if mode == 'dev' else 'disabled'}",
     ]
 
     ico_path = project_root / 'build' / ICON_NAME
@@ -179,17 +184,6 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
 
     command.extend(common_exclusions)
     command.extend(version_allowances)
-
-    if mode == "dev":
-        command.extend([
-            "--windows-console-mode=force",
-        ])
-    else:
-        command.extend([
-            "--windows-console-mode=disable",
-            "--lto=yes",
-        ])
-
     command.append(str(script_path))
     return command
 
