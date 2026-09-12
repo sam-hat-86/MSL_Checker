@@ -98,29 +98,53 @@ def find_requirements_file(project_root: Path, version: str) -> Path | None:
 
 def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: int, mode: str, version: str) -> list[str]:
     common_exclusions = [
-        "--nofollow-import-to=tzdata",
+        # --- テスト・開発・デバッグ系 ---
         "--nofollow-import-to=unittest",
+        "--nofollow-import-to=pytest",
+        "--nofollow-import-to=test",
+        "--nofollow-import-to=sqlite3.test",
+        "--nofollow-import-to=ctypes.test",
+        "--nofollow-import-to=tkinter.test",
+        "--nofollow-import-to=doctest",
+        "--nofollow-import-to=pdb",
+        "--nofollow-import-to=pydoc",
         "--nofollow-import-to=IPython",
         "--nofollow-import-to=notebook",
-        "--nofollow-import-to=pytest",
         "--nofollow-import-to=distutils",
         "--nofollow-import-to=setuptools",
+
+        # --- 通信・ネットワーク系（ローカル完結のため不要） ---
         "--nofollow-import-to=ssl",
         "--nofollow-import-to=asyncio",
         "--nofollow-import-to=http",
         "--nofollow-import-to=ftplib",
+        "--nofollow-import-to=email",
+        "--nofollow-import-to=urllib",
+        "--nofollow-import-to=xmlrpc",
+
+        # --- タイムゾーン・多言語系 ---
+        "--nofollow-import-to=tzdata",
+        "--nofollow-import-to=tcl.tzdata",
+        "--nofollow-import-to=pytz",
         "--nofollow-import-to=encodings.idna",
         "--nofollow-import-to=stringprep",
-        "--nofollow-import-to=tcl.tzdata",
+
+        # --- 巨大ライブラリ（本アプリ不使用） ---
         "--nofollow-import-to=pandas",
         "--nofollow-import-to=numpy",
         "--nofollow-import-to=matplotlib",
         "--nofollow-import-to=scipy",
         "--nofollow-import-to=cryptography",
         "--nofollow-import-to=jinja2",
-        "--nofollow-import-to=pytz",
+
+        # --- PyArrow のテスト・未使用サブモジュール ---
         "--nofollow-import-to=pyarrow.tests",
+        "--nofollow-import-to=pyarrow.conftest",
+        "--nofollow-import-to=pyarrow.benchmark",
+        "--nofollow-import-to=pyarrow._pyarrow_cpp_tests",
         "--nofollow-import-to=pyarrow.pandas_compat",
+        "--nofollow-import-to=pyarrow.flight",
+        "--nofollow-import-to=pyarrow.cuda",
     ]
 
     v_num = 0
@@ -165,7 +189,6 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         f"--windows-product-version={version}",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
-        "--remove-output",
         "--no-deployment-flag=self-execution",
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
@@ -187,20 +210,25 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
     command.append(str(script_path))
     return command
 
-def clean_outputs(project_root: Path, build_dir: Path, exe_name: str) -> None:
-    output_exe = project_root / f"{exe_name}.exe"
-    if output_exe.exists():
-        output_exe.unlink()
+def clean_outputs(project_root: Path, build_dir: Path, exe_name: str, script_stem: str | None = None, remove_exe: bool = True) -> None:
+    if remove_exe:
+        output_exe = project_root / f"{exe_name}.exe"
+        if output_exe.exists():
+            try:
+                output_exe.unlink()
+            except OSError:
+                pass
 
-    for suffix in (".build", ".onefile-build"):
-        target = build_dir / f"{exe_name}{suffix}"
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
+    stems = [exe_name]
+    if script_stem and script_stem not in stems:
+        stems.append(script_stem)
 
-    for suffix in (".build", ".onefile-build"):
-        target = project_root / f"{exe_name}{suffix}"
-        if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
+    for stem in stems:
+        for suffix in (".build", ".onefile-build", ".dist"):
+            for base in (build_dir, project_root):
+                target = base / f"{stem}{suffix}"
+                if target.exists():
+                    shutil.rmtree(target, ignore_errors=True)
 
 def main() -> int:
     args = parse_args()
@@ -250,7 +278,7 @@ def main() -> int:
         exe_name += "_dev"
 
     print("\n=== STEP 1: CLEANING ===")
-    clean_outputs(project_root, build_dir, exe_name)
+    clean_outputs(project_root, build_dir, exe_name, script_path.stem)
 
     print("\n=== STEP 2: NUITKA BUILD ===")
     if requirements_file and requirements_file.exists():
@@ -290,6 +318,7 @@ def main() -> int:
     output_exe = project_root / f"{exe_name}.exe"
     print("\n==========================================")
     if output_exe.exists():
+        clean_outputs(project_root, build_dir, exe_name, script_path.stem, remove_exe=False)
         print("[SUCCESS] ビルドが正常に完了しました。")
         print(f"保存先: {output_exe}")
         return 0
