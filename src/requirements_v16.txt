@@ -1,0 +1,3 @@
+xlsxwriter
+pyarrow
+fastexcel
