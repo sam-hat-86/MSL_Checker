@@ -11,7 +11,7 @@ from pathlib import Path
 APP_NAME_BASE = "MSL_Checker"
 SCRIPT_BASE_PREFIX = "MSLdata_check_v"
 MIN_VERSION="11"
-MAX_VERSION="15"
+MAX_VERSION="17"
 DEFAULT_VERSION=MAX_VERSION
 ICON_NAME = "logo.ico"
 SPLASH_NAME = "splash.png"
@@ -73,9 +73,13 @@ def available_versions(project_root:Path)->list[str]:
     return sorted(versions,key=int)
 
 def find_script_path(project_root: Path, version: str) -> Path | None:
+    major_m = re.match(r"(\d+)", version)
+    major_v = major_m.group(1) if major_m else version
     candidates = [
         project_root / "src" / f"{SCRIPT_BASE_PREFIX}{version}.py",
-        project_root / f"{SCRIPT_BASE_PREFIX}{version}.py"
+        project_root / f"{SCRIPT_BASE_PREFIX}{version}.py",
+        project_root / "src" / f"{SCRIPT_BASE_PREFIX}{major_v}.py",
+        project_root / f"{SCRIPT_BASE_PREFIX}{major_v}.py",
     ]
     for c in candidates:
         if c.exists():
@@ -113,13 +117,9 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--nofollow-import-to=distutils",
         "--nofollow-import-to=setuptools",
 
-        # --- 通信・ネットワーク系（ローカル完結のため不要） ---
-        "--nofollow-import-to=ssl",
+        # --- 通信・ネットワーク系（不要なもののみ） ---
         "--nofollow-import-to=asyncio",
-        "--nofollow-import-to=http",
         "--nofollow-import-to=ftplib",
-        "--nofollow-import-to=email",
-        "--nofollow-import-to=urllib",
         "--nofollow-import-to=xmlrpc",
 
         # --- タイムゾーン・多言語系 ---
@@ -149,7 +149,8 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
 
     v_num = 0
     try:
-        v_num = int(version)
+        m = re.match(r"(\d+)", version)
+        v_num = int(m.group(1)) if m else int(version)
     except ValueError:
         pass
 
@@ -161,6 +162,16 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
             "--nofollow-import-to=polars",
         ])
         print(f"[INFO] v13以降向けビルド定義：Polarsを除外します。")
+
+    if v_num < 17:
+        version_exclusions.extend([
+            "--nofollow-import-to=ssl",
+            "--nofollow-import-to=http",
+            "--nofollow-import-to=email",
+            "--nofollow-import-to=urllib",
+        ])
+    else:
+        print("[INFO] v17以降向けビルド定義：アップデート確認のため通信モジュール(ssl, http, urllib)を許可します。")
 
     if v_num == 13:
         version_exclusions.extend([

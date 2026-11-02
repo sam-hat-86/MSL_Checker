@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ビルドするバージョン番号 (例: 17)'
+        required: false
+        default: '17'
+      create_release:
+        description: 'GitHub Release を作成するかどうか'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: バージョン番号の決定
+        id: get_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW_VER="${{ github.event.inputs.version }}"
+          else
+            # タグ名 (refs/tags/v17 -> 17)
+            RAW_VER="${GITHUB_REF#refs/tags/v}"
+          fi
+          # 先頭の 'v' が残っている場合は除去
+          VER="${RAW_VER#v}"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VER}"
+
+      - name: Python 3.12 のセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 依存パッケージのインストール
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "src/requirements_v${{ steps.get_version.outputs.version }}.txt" ]; then
+            python -m pip install -r "src/requirements_v${{ steps.get_version.outputs.version }}.txt"
+          else
+            python -m pip install -r "src/requirements_v17.txt"
+          fi
+          python -m pip install -r "build/requirements-build.txt"
+          # 検証スクリプト用
+          python -m pip install openpyxl
+
+      - name: 回帰テスト・出力検証の実行
+        shell: bash
+        run: |
+          python test/verify_output.py
+          python test/test_lap_pairs.py
+
+      - name: Nuitka キャッシュの復元・保存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/Nuitka/Nuitka/Cache
+            ~/AppData/Roaming/ccache
+          key: nuitka-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-${{ github.sha }}
+          restore-keys: |
+            nuitka-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-
+            nuitka-cache-${{ runner.os }}-
+
+      - name: MSL Checker EXE のビルド (Release版 & Dev版)
+        shell: bash
+        run: |
+          # 1. 本番リリース版ビルド (コンソール非表示)
+          python build/build2.py -v "${{ steps.get_version.outputs.version }}" -m release
+          
+          # 2. 開発版ビルド (コンソール表示)
+          python build/build2.py -v "${{ steps.get_version.outputs.version }}" -m dev
+
+      - name: 生成された EXE の確認
+        shell: bash
+        run: |
+          ls -lh MSL_Checker_v*.exe
+
+      - name: ビルド生成物の保存 (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MSL_Checker_v${{ steps.get_version.outputs.version }}_executables
+          path: MSL_Checker_v*.exe
+          if-no-files-found: error
+
+      - name: GitHub Release の作成・更新
+        if: ${{ github.event_name == 'push' || github.event.inputs.create_release == true || github.event.inputs.create_release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || format('v{0}', steps.get_version.outputs.version) }}
+          name: MSL_Checker v${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            MSL_Checker_v*.exe
+
