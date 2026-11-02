@@ -2,12 +2,11 @@ import os
 import sys
 
 # Windowsコンソール/CI環境でのUTF-8出力保証 (UnicodeEncodeError防止)
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception: pass
-if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    try: sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception: pass
+for _s in (sys.stdout, sys.stderr):
+    _reconf = getattr(_s, "reconfigure", None)
+    if callable(_reconf):
+        try: _reconf(encoding="utf-8", errors="replace")
+        except Exception: pass
 
 import glob
 import openpyxl
@@ -15,6 +14,7 @@ import openpyxl
 # Load module
 import importlib.util
 spec = importlib.util.spec_from_file_location("msl_v17", os.path.abspath("src/MSLdata_check_v17.py"))
+assert spec is not None and spec.loader is not None, "Failed to load msl_v17 module spec"
 msl_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(msl_mod)
 
@@ -52,7 +52,7 @@ for s_name, criteria in [("全集計ペアリスト", "全集計データ基準"
     print(f"\n--- Checking {s_name} ---")
     print(f"max_row: {ws.max_row}, max_column: {ws.max_column}")
     
-    title_val = ws.cell(row=1, column=1).value
+    title_val = str(ws.cell(row=1, column=1).value or "")
     print(f"Title (Row 1): {title_val}")
     assert criteria in title_val, f"Title criteria mismatch in {s_name}: {title_val}"
 

@@ -2,12 +2,11 @@ import os
 import sys
 
 # Windowsコンソール/CI環境でのUTF-8出力保証 (UnicodeEncodeError防止)
-if sys.stdout and hasattr(sys.stdout, "reconfigure"):
-    try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception: pass
-if sys.stderr and hasattr(sys.stderr, "reconfigure"):
-    try: sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception: pass
+for _s in (sys.stdout, sys.stderr):
+    _reconf = getattr(_s, "reconfigure", None)
+    if callable(_reconf):
+        try: _reconf(encoding="utf-8", errors="replace")
+        except Exception: pass
 
 import glob
 import re
