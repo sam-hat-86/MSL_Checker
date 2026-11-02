@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja" data-theme="light">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,13 +14,14 @@
     <title>MSL Checker | 運用マニュアル & バージョン遍歴</title>
     <meta name="description" content="MSL Checkerの操作手順、4シートExcelレポートの見方、起動時アップデート確認、およびv1〜v17のバージョン進化の全記録。">
     <script>
-        (function() {
+        (function () {
             var theme = localStorage.getItem('msl_theme') ||
                 (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
             document.documentElement.setAttribute('data-theme', theme);
         })();
     </script>
 </head>
+
 <body class="is-loading">
 
     <!-- Preloader (Material Symbols / WebFont 読み込み完了まで表示) -->
@@ -231,33 +233,6 @@
                             </div>
                         </div>
 
-                        <h3>Lap 改善ペアリスト（シート③・④）の項目構成 (12列)</h3>
-                        <div class="table-responsive">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>列名</th>
-                                        <th>説明・算出ルール</th>
-                                        <th>アラート条件</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr><td><strong>教室</strong></td><td>授業が実施された拠点名</td><td>-</td></tr>
-                                    <tr><td><strong>講師No</strong></td><td>講師ID/社員番号</td><td>-</td></tr>
-                                    <tr><td><strong>担当講師名</strong></td><td>授業を担当した講師の氏名（太字）</td><td>-</td></tr>
-                                    <tr><td><strong>生徒名</strong></td><td>受講した生徒の氏名（太字）</td><td>-</td></tr>
-                                    <tr><td><strong>学年</strong></td><td>生徒の学年（例: 中3, 高2 など）</td><td>-</td></tr>
-                                    <tr><td><strong>科目</strong></td><td>指導科目（例: 英語, 数学 など）</td><td>-</td></tr>
-                                    <tr><td><strong>授業数</strong></td><td>対象期間中の該当ペアでの有効授業回数</td><td>-</td></tr>
-                                    <tr><td><strong>Lap回数</strong></td><td>該当ペアでLapテストを実施した回数</td><td>-</td></tr>
-                                    <tr><td><strong>未実施数</strong></td><td><code>授業数 - Lap回数</code>（未実施の授業回数）</td><td><span class="cell-badge badge-unlap">1回以上で薄黄色</span></td></tr>
-                                    <tr><td><strong>ペアLap％</strong></td><td>該当ペアにおけるLap実施率（<code>Lap回数 ÷ 授業数</code>）</td><td><span class="cell-badge badge-danger">70%未満で濃赤背景</span></td></tr>
-                                    <tr><td><strong>講師全体Lap％</strong></td><td>その講師が全生徒に対して担当した全体のLap実施率</td><td>-</td></tr>
-                                    <tr><td><strong>生徒全体Lap％</strong></td><td>その生徒が全講師から受けた授業全体のLap実施率</td><td>-</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-
                         <h3>週別集計シート（シート①・②）の表示項目と背景色</h3>
                         <div class="table-responsive">
                             <table>
@@ -297,6 +272,81 @@
                                 </tbody>
                             </table>
                         </div>
+
+                        <h3>Lap 改善ペアリスト（シート③・④）の項目構成 (12列)</h3>
+                        <div class="table-responsive">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>列名</th>
+                                        <th>説明・算出ルール</th>
+                                        <th>アラート条件</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>教室</strong></td>
+                                        <td>授業が実施された拠点名</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>講師No</strong></td>
+                                        <td>講師ID/社員番号</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>担当講師名</strong></td>
+                                        <td>授業を担当した講師の氏名（太字）</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>生徒名</strong></td>
+                                        <td>受講した生徒の氏名（太字）</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>学年</strong></td>
+                                        <td>生徒の学年（例: 中3, 高2 など）</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>科目</strong></td>
+                                        <td>指導科目（例: 英語, 数学 など）</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>授業数</strong></td>
+                                        <td>対象期間中の該当ペアでの有効授業回数</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Lap回数</strong></td>
+                                        <td>該当ペアでLapテストを実施した回数</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>未実施数</strong></td>
+                                        <td><code>授業数 - Lap回数</code>（未実施の授業回数）</td>
+                                        <td><span class="cell-badge badge-unlap">1回以上で薄黄色</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>ペアLap％</strong></td>
+                                        <td>該当ペアにおけるLap実施率（<code>Lap回数 ÷ 授業数</code>）</td>
+                                        <td><span class="cell-badge badge-danger">70%未満で濃赤背景</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>講師全体Lap％</strong></td>
+                                        <td>その講師が全生徒に対して担当した全体のLap実施率</td>
+                                        <td>-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>生徒全体Lap％</strong></td>
+                                        <td>その生徒が全講師から受けた授業全体のLap実施率</td>
+                                        <td>-</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </section>
 
                     <!-- 5. Rules -->
@@ -321,7 +371,7 @@
                     <!-- 6. FAQ -->
                     <section id="faq" class="content-card">
                         <h2><span class="material-symbols-outlined">help</span> トラブルシューティング (FAQ)</h2>
-                        
+
                         <div class="faq-search-box">
                             <span class="material-symbols-outlined faq-search-icon">search</span>
                             <input type="text" id="faq-search" class="faq-input" placeholder="エラーメッセージやキーワードでFAQを検索...">
@@ -866,4 +916,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
