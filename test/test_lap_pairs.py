@@ -8,9 +8,12 @@ import fastexcel
 from datetime import datetime, timedelta
 
 def test_aggregation():
-    sample_files = glob.glob('bench/*サンプル*.xlsx')
+    sample_files = glob.glob('bench/*サンプル*.xlsx') + glob.glob('bench/*sample*.xlsx')
     if not sample_files:
         sample_files = [x for x in glob.glob('bench/*.xlsx') if 'bench_op' not in x]
+    if not sample_files:
+        print("[ERROR] No sample Excel files found in bench/ directory.")
+        sys.exit(1)
     input_file = sample_files[0]
     print(f"Testing with file: {input_file}")
 

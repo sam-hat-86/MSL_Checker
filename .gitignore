@@ -24,3 +24,6 @@ wiki/wikiルール
 
 #data
 *.xls*
+!bench/MSLサンプル.xlsx
+!bench/sample.xlsx
+
