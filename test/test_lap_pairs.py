@@ -49,12 +49,12 @@ def test_aggregation():
         att_val = row[c_att_idx] if c_att_idx is not None else ""
         if att_val != "出席" and str(att_val).strip() != "出席": continue
 
-        cls = re_fs.sub("", str(row[c_room_idx] or "")).strip()
-        name = re_teacher_mark.sub("", str(row[c_tname_idx] or "")).strip()
-        no = str(row[c_tno_idx] or "").strip()
-        sname = str(row[c_sname_idx] or "").strip()
-        grade = str(row[c_grade_idx] or "").strip()
-        subj = str(row[c_subj_idx] or "").strip()
+        cls = re_fs.sub("", str(row[c_room_idx] if c_room_idx is not None else "")).strip()
+        name = re_teacher_mark.sub("", str(row[c_tname_idx] if c_tname_idx is not None else "")).strip()
+        no = str(row[c_tno_idx] if c_tno_idx is not None else "").strip()
+        sname = str(row[c_sname_idx] if c_sname_idx is not None else "").strip()
+        grade = str(row[c_grade_idx] if c_grade_idx is not None else "").strip()
+        subj = str(row[c_subj_idx] if c_subj_idx is not None else "").strip()
 
         excl_grade = 1 if re_excl_grade.search(grade) else 0
         excl_subj = 1 if re_excl_subj.search(subj) else 0
