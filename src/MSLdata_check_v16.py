@@ -8,6 +8,14 @@ import re
 import unicodedata
 import sys
 import ctypes
+
+# Windowsコンソール/CI環境でのUTF-8出力保証 (UnicodeEncodeError防止)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception: pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try: sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception: pass
 import tkinter.font as tkfont
 import traceback
 import time
@@ -75,7 +83,10 @@ class AppConfig:
 
 def progress(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    print(f"[{ts}] {msg}")
+    try:
+        print(f"[{ts}] {msg}", flush=True)
+    except Exception:
+        pass
 
 def dismiss_splash() -> None:
     try:
