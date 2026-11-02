@@ -9,7 +9,7 @@ spec = importlib.util.spec_from_file_location("msl_v17", os.path.abspath("src/MS
 msl_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(msl_mod)
 
-sample_files = glob.glob('bench/*サンプル*.xlsx') + glob.glob('bench/*sample*.xlsx')
+sample_files = glob.glob('bench/*sample*.xlsx') + glob.glob('bench/*サンプル*.xlsx')
 if not sample_files:
     sample_files = [x for x in glob.glob('bench/*.xlsx') if 'bench_op' not in x]
 if not sample_files:

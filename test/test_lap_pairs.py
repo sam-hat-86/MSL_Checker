@@ -8,7 +8,7 @@ import fastexcel
 from datetime import datetime, timedelta
 
 def test_aggregation():
-    sample_files = glob.glob('bench/*サンプル*.xlsx') + glob.glob('bench/*sample*.xlsx')
+    sample_files = glob.glob('bench/*sample*.xlsx') + glob.glob('bench/*サンプル*.xlsx')
     if not sample_files:
         sample_files = [x for x in glob.glob('bench/*.xlsx') if 'bench_op' not in x]
     if not sample_files:

@@ -27,7 +27,7 @@ def set_CONSTS(R, D, C, T):
     ROOMS = C
     TEACHERS = T
     SAMPLE_PATH = f"s{ROWS}R_{DATE_RANGE}D_{ROOMS}C_{TEACHERS}T.xlsx"
-    # SAMPLE_PATH = f"MSLサンプル.xlsx"
+    # SAMPLE_PATH = f"sample.xlsx"
 
 def make_sample():
     if os.path.exists(SAMPLE_PATH):
