@@ -96,18 +96,32 @@ def dismiss_splash() -> None:
     except Exception:
         pass
 
+_SELECTED_FONT_CACHE: str | None = None
+
 def select_font(preferred: list[str] | None = None) -> str:
+    global _SELECTED_FONT_CACHE
+    if _SELECTED_FONT_CACHE is not None:
+        return _SELECTED_FONT_CACHE
     prefs = preferred or AppConfig.FONT_PREFERRED
     try:
-        root_tmp = tk.Tk()
-        root_tmp.withdraw()
-        fams = set(tkfont.families())
-        root_tmp.destroy()
+        existing_root = getattr(tk, "_default_root", None)
+        if existing_root:
+            fams = set(tkfont.families(existing_root))
+        else:
+            root_tmp = tk.Tk()
+            root_tmp.withdraw()
+            fams = set(tkfont.families(root_tmp))
+            root_tmp.destroy()
         for f in prefs:
-            if f in fams: return f
+            if f in fams:
+                _SELECTED_FONT_CACHE = f
+                return f
     except Exception:
         pass
-    for f in prefs: return f
+    for f in prefs:
+        _SELECTED_FONT_CACHE = f
+        return f
+    _SELECTED_FONT_CACHE = "Calibri"
     return "Calibri"
 
 def normalize_text_for_matching(s: object) -> str:

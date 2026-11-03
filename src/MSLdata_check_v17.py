@@ -24,6 +24,7 @@ import fastexcel
 import urllib.request
 import json
 import webbrowser
+import threading
 
 # ==========================================
 # 【設定セクション】 アプリケーション全般・Excel出力の統合管理
@@ -107,18 +108,32 @@ def dismiss_splash() -> None:
     except Exception:
         pass
 
+_SELECTED_FONT_CACHE: str | None = None
+
 def select_font(preferred: list[str] | None = None) -> str:
+    global _SELECTED_FONT_CACHE
+    if _SELECTED_FONT_CACHE is not None:
+        return _SELECTED_FONT_CACHE
     prefs = preferred or AppConfig.FONT_PREFERRED
     try:
-        root_tmp = tk.Tk()
-        root_tmp.withdraw()
-        fams = set(tkfont.families())
-        root_tmp.destroy()
+        existing_root = getattr(tk, "_default_root", None)
+        if existing_root:
+            fams = set(tkfont.families(existing_root))
+        else:
+            root_tmp = tk.Tk()
+            root_tmp.withdraw()
+            fams = set(tkfont.families(root_tmp))
+            root_tmp.destroy()
         for f in prefs:
-            if f in fams: return f
+            if f in fams:
+                _SELECTED_FONT_CACHE = f
+                return f
     except Exception:
         pass
-    for f in prefs: return f
+    for f in prefs:
+        _SELECTED_FONT_CACHE = f
+        return f
+    _SELECTED_FONT_CACHE = "Calibri"
     return "Calibri"
 
 def normalize_text_for_matching(s: object) -> str:
@@ -522,66 +537,93 @@ def parse_version_tuple(v_str: str) -> tuple[int, ...]:
         nums.pop()
     return tuple(nums) if nums else (0,)
 
-def check_for_updates(parent: tk.Tk | None = None) -> bool:
-    """
-    GitHub Releases API を確認し、最新バージョンがある場合はアップデート案内を表示する。
-    通信失敗やタイムアウト時はサイレントにスキップする。
-    """
-    try:
-        progress("アップデート確認中...")
-        req = urllib.request.Request(
-            AppConfig.GITHUB_API_LATEST_URL,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": f"MSL-Checker/{AppConfig.APP_VERSION}",
-            }
-        )
-        with urllib.request.urlopen(req, timeout=AppConfig.UPDATE_CHECK_TIMEOUT) as resp:
-            if resp.status != 200:
-                progress(f"アップデート確認スキップ (HTTPステータス: {resp.status})")
-                return False
-            data = json.loads(resp.read().decode("utf-8"))
+class UpdateChecker:
+    """GitHub Releases API の更新確認をバックグラウンドスレッドで非同期実行するクラス"""
+    def __init__(self):
+        self.update_available = False
+        self.update_info = None
+        self.thread = None
 
-        latest_tag = data.get("tag_name", "")
-        release_name = data.get("name") or latest_tag
-        html_url = data.get("html_url") or AppConfig.GITHUB_RELEASES_PAGE
-        body = data.get("body", "").strip()
+    def start(self):
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
 
-        current_ver = parse_version_tuple(AppConfig.APP_VERSION)
-        latest_ver = parse_version_tuple(latest_tag)
-
-        if latest_ver > current_ver:
-            progress(f"新しいバージョンが検出されました: {latest_tag} (現在: v{AppConfig.APP_VERSION})")
-            # 変更点概要（先頭300文字以内）
-            body_summary = ""
-            if body:
-                lines = [line.strip() for line in body.splitlines() if line.strip()][:5]
-                body_summary = "\n".join(lines)
-                if len(body_summary) > 300:
-                    body_summary = body_summary[:300] + "..."
-
-            msg = (
-                f"新しいバージョンが公開されています！\n\n"
-                f"現在のバージョン: v{AppConfig.APP_VERSION}\n"
-                f"最新バージョン: {latest_tag} ({release_name})\n\n"
+    def _run(self):
+        try:
+            progress("バックグラウンドでアップデート確認中...")
+            req = urllib.request.Request(
+                AppConfig.GITHUB_API_LATEST_URL,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"MSL-Checker/{AppConfig.APP_VERSION}",
+                }
             )
-            if body_summary:
-                msg += f"【更新内容】\n{body_summary}\n\n"
-            msg += "今すぐダウンロードページを開きますか？"
+            with urllib.request.urlopen(req, timeout=AppConfig.UPDATE_CHECK_TIMEOUT) as resp:
+                if resp.status != 200:
+                    return
+                data = json.loads(resp.read().decode("utf-8"))
 
-            if parent:
-                parent.attributes("-topmost", True)
-                ans = messagebox.askyesno("アップデートのお知らせ", msg, parent=parent)
+            latest_tag = data.get("tag_name", "")
+            release_name = data.get("name") or latest_tag
+            html_url = data.get("html_url") or AppConfig.GITHUB_RELEASES_PAGE
+            body = data.get("body", "").strip()
+
+            current_ver = parse_version_tuple(AppConfig.APP_VERSION)
+            latest_ver = parse_version_tuple(latest_tag)
+
+            if latest_ver > current_ver:
+                progress(f"新しいバージョンが検出されました: {latest_tag} (現在: v{AppConfig.APP_VERSION})")
+                self.update_available = True
+                self.update_info = {
+                    "latest_tag": latest_tag,
+                    "release_name": release_name,
+                    "html_url": html_url,
+                    "body": body,
+                }
             else:
-                ans = messagebox.askyesno("アップデートのお知らせ", msg)
-            if ans:
-                webbrowser.open(html_url)
-                return True
+                progress(f"最新バージョンをご利用中です (v{AppConfig.APP_VERSION})")
+        except Exception as e:
+            progress(f"アップデート確認スキップ: {e}")
+
+    def prompt_if_available(self, parent: tk.Tk | None = None) -> bool:
+        if not self.update_available or not self.update_info:
+            return False
+        info = self.update_info
+        self.update_available = False  # 重複表示防止
+
+        body_summary = ""
+        body = info.get("body", "")
+        if body:
+            lines = [line.strip() for line in body.splitlines() if line.strip()][:5]
+            body_summary = "\n".join(lines)
+            if len(body_summary) > 300:
+                body_summary = body_summary[:300] + "..."
+
+        msg = (
+            f"新しいバージョンが公開されています！\n\n"
+            f"現在のバージョン: v{AppConfig.APP_VERSION}\n"
+            f"最新バージョン: {info['latest_tag']} ({info['release_name']})\n\n"
+        )
+        if body_summary:
+            msg += f"【更新内容】\n{body_summary}\n\n"
+        msg += "今すぐダウンロードページを開きますか？"
+
+        if parent:
+            parent.attributes("-topmost", True)
+            ans = messagebox.askyesno("アップデートのお知らせ", msg, parent=parent)
         else:
-            progress(f"最新バージョンをご利用中です (v{AppConfig.APP_VERSION})")
-    except Exception as e:
-        progress(f"アップデート確認をスキップしました: {e}")
-    return False
+            ans = messagebox.askyesno("アップデートのお知らせ", msg)
+        if ans:
+            webbrowser.open(info["html_url"])
+            return True
+        return False
+
+def check_for_updates(parent: tk.Tk | None = None) -> bool:
+    checker = UpdateChecker()
+    checker.start()
+    if checker.thread:
+        checker.thread.join(timeout=0.6)
+    return checker.prompt_if_available(parent=parent)
 
 def show_error_dialog(title: str, message: str, parent: tk.Tk | None = None) -> None:
     dlg = tk.Toplevel(parent) if parent else tk.Toplevel()
@@ -948,8 +990,12 @@ def main():
     root.withdraw()
 
     try:
-        # 起動時の新バージョン確認（通信エラー時はサイレントに無視して通常処理を継続）
-        check_for_updates(parent=root)
+        # 起動時の新バージョン確認（非同期スレッドで即座に開始し、UIをブロックしない）
+        updater = UpdateChecker()
+        updater.start()
+        if updater.thread:
+            updater.thread.join(timeout=0.5)
+        updater.prompt_if_available(parent=root)
 
         root.attributes("-topmost", True); root.lift(); root.focus_force()
         downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -964,6 +1010,9 @@ def main():
         if not input_file:
             root.destroy()
             return
+
+        # ファイル選択中にバックグラウンド確認が完了していた場合は通知
+        updater.prompt_if_available(parent=root)
 
         start_from_saturday = messagebox.askyesno(
             "集計基準の選択",

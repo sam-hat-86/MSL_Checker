@@ -379,10 +379,26 @@
 
                         <div class="accordion-group">
                             <details class="accordion-item">
-                                <summary class="accordion-header">Q. 起動時に「WindowsによってPCが保護されました」という青い警告画面が出る</summary>
+                                <summary class="accordion-header">Q. Edge や Chrome でダウンロード時に「安全にダウンロードすることはできません」とブロックされる</summary>
                                 <div class="accordion-body">
-                                    WindowsのSmartScreenによる標準的な初回警告です。
-                                    画面内の<strong>「詳細情報」</strong>という文字をクリックすると、右下に<strong>「実行」</strong>ボタンが表示されますので、「実行」を押して起動してください。
+                                    ブラウザが未署名の新しい実行ファイル（.exe）に対して表示する安全確認の警告です。本ソフトはオープンソースであり安全にご利用いただけます。<br><br>
+                                    <strong>【Microsoft Edge の場合】</strong><br>
+                                    1. ダウンロードトレイの警告にマウスを合わせ、<strong>「…」</strong>（詳細オプション）をクリックします。<br>
+                                    2. <strong>「保存」</strong> を選択します。<br>
+                                    3. 警告ダイアログで <strong>「詳細表示」</strong> をクリックし、<strong>「保持する」</strong> を押すとダウンロードが完了します。<br><br>
+                                    <strong>【Google Chrome の場合】</strong><br>
+                                    1. 画面右上のダウンロードアイコンをクリックします。<br>
+                                    2. <strong>「不審なファイルをダウンロード」</strong> をクリックし、<strong>「続行する」</strong> を選択してください。
+                                </div>
+                            </details>
+
+                            <details class="accordion-item">
+                                <summary class="accordion-header">Q. 起動時に「WindowsによってPCが保護されました」という青い警告画面が出る (SmartScreen)</summary>
+                                <div class="accordion-body">
+                                    Windows Defender SmartScreen による初回起動時の標準的な警告です。<br>
+                                    1. 画面内の青いリンク文字 <strong>「詳細情報」</strong> をクリックします。<br>
+                                    2. 右下に現れる <strong>「実行」</strong> ボタンをクリックすると通常通り起動します。<br><br>
+                                    <em>※次回以降の警告を完全に防ぐには、ダウンロードした EXE を右クリック →「プロパティ」→「全般」タブ最下部の「セキュリティ: 許可する」にチェックを入れて「OK」を押してください。</em>
                                 </div>
                             </details>
 

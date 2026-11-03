@@ -77,10 +77,10 @@ jobs:
           path: |
             ~/AppData/Local/Nuitka/Nuitka/Cache
             ~/AppData/Roaming/ccache
-          key: nuitka-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-${{ github.sha }}
+          key: nuitka-msvc-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-${{ github.sha }}
           restore-keys: |
-            nuitka-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-
-            nuitka-cache-${{ runner.os }}-
+            nuitka-msvc-cache-${{ runner.os }}-${{ steps.get_version.outputs.version }}-
+            nuitka-msvc-cache-${{ runner.os }}-
 
       - name: MSL Checker EXE のビルド (Release版 & Dev版)
         shell: bash

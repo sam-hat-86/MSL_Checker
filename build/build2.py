@@ -100,6 +100,12 @@ def find_requirements_file(project_root: Path, version: str) -> Path | None:
             return c
     return None
 
+def format_4digit_version(v: str) -> str:
+    parts = [int(p) for p in re.findall(r"\d+", str(v))]
+    while len(parts) < 4:
+        parts.append(0)
+    return ".".join(str(p) for p in parts[:4])
+
 def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: int, mode: str, version: str) -> list[str]:
     common_exclusions = [
         # --- テスト・開発・デバッグ系 ---
@@ -163,15 +169,6 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         ])
         print(f"[INFO] v13以降向けビルド定義：Polarsを除外します。")
 
-    if v_num < 17:
-        version_exclusions.extend([
-            "--nofollow-import-to=ssl",
-            "--nofollow-import-to=http",
-            "--nofollow-import-to=email",
-            "--nofollow-import-to=urllib",
-        ])
-    else:
-        print("[INFO] v17以降向けビルド定義：アップデート確認のため通信モジュール(ssl, http, urllib)を許可します。")
 
     if v_num == 13:
         version_exclusions.extend([
@@ -185,25 +182,33 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
 
     common_exclusions.extend(version_exclusions)
 
+    ver_4digit = format_4digit_version(version)
+    lto_setting = "yes" if mode == "release" else "no"
+
     command = [
         sys.executable,
         "-m",
         "nuitka",
         "--onefile",
-        # "--standalone"
         "--follow-imports",
         "--enable-plugin=tk-inter",
+        "--msvc=latest",
         f"--jobs={max(4, jobs)}",
         "--assume-yes-for-downloads",
         "--windows-company-name=sam-hat-86",
-        "--windows-product-name=MSL_Checker",
-        f"--windows-product-version={version}",
+        "--windows-product-name=MSL Checker",
+        f"--windows-product-version={ver_4digit}",
+        f"--windows-file-version={ver_4digit}",
+        "--windows-file-description=MSL Checker - 出席・授業実績集計システム",
+        "--windows-legal-copyright=Copyright (c) 2026 sam-hat-86. All rights reserved.",
+        "--onefile-tempdir-spec={CACHE_DIR}/sam-hat-86/MSL_Checker/{VERSION}",
         f"--output-dir={project_root}",
         f"--output-filename={exe_name}",
         "--no-deployment-flag=self-execution",
+        "--no-deployment-flag=excluded-module-usage",
         "--python-flag=no_docstrings",
         "--python-flag=no_asserts",
-        "--lto=no",
+        f"--lto={lto_setting}",
         f"--windows-console-mode={'force' if mode == 'dev' else 'disable'}",
     ]
 
