@@ -96,6 +96,36 @@ jobs:
         run: |
           ls -lh MSL_Checker_v${{ steps.get_version.outputs.version }}*.exe
 
+      - name: 生成された EXE の起動テスト (スモークテスト)
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.version }}"
+          $exePath = Resolve-Path "MSL_Checker_v${ver}_dev.exe" -ErrorAction SilentlyContinue
+          if (-not $exePath) {
+            $exePath = Resolve-Path "MSL_Checker_v${ver}.exe"
+          }
+          Write-Host "Testing executable startup: $exePath"
+          
+          # サブプロセスとして EXE を起動
+          $proc = Start-Process -FilePath $exePath -PassThru
+          Write-Host "Started process with PID: $($proc.Id)"
+          
+          # 15秒間プロセスを監視（解凍・インポート・初期化の完了待機）
+          $timeoutSec = 15
+          for ($i = 0; $i -lt $timeoutSec; $i++) {
+            Start-Sleep -Seconds 1
+            $proc.Refresh()
+            if ($proc.HasExited) {
+              Write-Error "EXE process exited prematurely with exit code: $($proc.ExitCode)!"
+              exit 1
+            }
+          }
+          
+          Write-Host "EXE process is running normally without crash. Terminating for test completion..."
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "Smoke test PASSED!"
+
+
       - name: ビルド生成物の保存 (Artifacts)
         uses: actions/upload-artifact@v4
         with:

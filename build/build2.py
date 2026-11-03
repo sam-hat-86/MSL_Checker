@@ -179,6 +179,9 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
             "--include-package=pyarrow",
             "--include-package=fastexcel",
             "--include-module=queue",
+            "--include-module=pickle",
+            "--include-module=uuid",
+            "--include-module=json",
         ])
 
     common_exclusions.extend(version_exclusions)
@@ -193,7 +196,17 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--onefile",
         "--follow-imports",
         "--enable-plugin=tk-inter",
-        "--msvc=latest",
+    ]
+
+    # CI環境 (GitHub Actions) または MSVC が利用可能な場合は --msvc=latest を指定
+    # ローカル等で MSVC がない場合は MinGW64 などへの自動選択に任せる
+    if os.environ.get("GITHUB_ACTIONS") or shutil.which("cl.exe"):
+        command.append("--msvc=latest")
+        print("[INFO] Cコンパイラ: MSVC (latest) を指定します。")
+    else:
+        print("[INFO] Cコンパイラ: 自動検出 (MinGW64等) を使用します。")
+
+    command.extend([
         f"--jobs={max(4, jobs)}",
         "--assume-yes-for-downloads",
         "--company-name=sam-hat-86",
@@ -211,7 +224,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         "--python-flag=no_asserts",
         f"--lto={lto_setting}",
         f"--windows-console-mode={'force' if mode == 'dev' else 'disable'}",
-    ]
+    ])
 
     ico_path = project_root / 'build' / ICON_NAME
     if ico_path.exists():
