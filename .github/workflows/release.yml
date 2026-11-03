@@ -94,13 +94,13 @@ jobs:
       - name: 生成された EXE の確認
         shell: bash
         run: |
-          ls -lh MSL_Checker_v*.exe
+          ls -lh MSL_Checker_v${{ steps.get_version.outputs.version }}*.exe
 
       - name: ビルド生成物の保存 (Artifacts)
         uses: actions/upload-artifact@v4
         with:
           name: MSL_Checker_v${{ steps.get_version.outputs.version }}_executables
-          path: MSL_Checker_v*.exe
+          path: MSL_Checker_v${{ steps.get_version.outputs.version }}*.exe
           if-no-files-found: error
 
       - name: GitHub Release の作成・更新
@@ -113,5 +113,5 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            MSL_Checker_v*.exe
+            MSL_Checker_v${{ steps.get_version.outputs.version }}*.exe
 

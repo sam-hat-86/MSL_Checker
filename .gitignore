@@ -1,8 +1,18 @@
+# Executables and archives
+*.exe
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
 # Python virtual environment
 /.venv/
 
-# VS Code local settings
+# VS Code and editor local settings
 .vscode/
+.idea/
+*.swp
+*~
 
 # Nuitka build outputs
 *.build/
@@ -18,11 +28,11 @@ __pycache__/
 *.dll
 *.so
 
-# Logs and executables generated at the project root
+# Logs, scratch and temporary files
 *.log
+scratch/
 wiki/wikiルール
 
-#data
+# Data files
 *.xls*
 !bench/sample.xlsx
-
