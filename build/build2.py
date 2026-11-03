@@ -178,6 +178,7 @@ def build_command(project_root: Path, script_path: Path, exe_name: str, jobs: in
         version_allowances.extend([
             "--include-package=pyarrow",
             "--include-package=fastexcel",
+            "--include-module=queue",
         ])
 
     common_exclusions.extend(version_exclusions)

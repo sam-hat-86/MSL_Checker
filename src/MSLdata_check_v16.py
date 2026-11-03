@@ -21,6 +21,7 @@ import time
 import gc
 import pyarrow
 import fastexcel
+import queue
 
 # ==========================================
 # 【設定セクション】 アプリケーション全般・Excel出力の統合管理
